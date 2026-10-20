@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<meta name="theme-color" content="#f2f4f7" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0e131a" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f2f4f7">
 <title>明和商会 社有車ログ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,14 +19,9 @@
   --plate-bg:#fbfbf6; --plate-fg:#1b5a37; --shadow:0 1px 2px rgba(20,32,48,.06);
   --f-body:"BIZ UDPGothic","Hiragino Sans","Yu Gothic UI","Meiryo",system-ui,sans-serif;
   --f-head:"Zen Kaku Gothic New","BIZ UDPGothic","Hiragino Sans","Yu Gothic UI",sans-serif;
-  color-scheme:light;
+  /* スマホがダークモードでも常に明るい画面で表示する */
+  color-scheme:light only;
 }
-@media (prefers-color-scheme: dark){:root{
-  --bg:#0e131a; --surface:#17202b; --ink:#e5eaf1; --muted:#98a4b4; --line:#2a3544;
-  --accent:#78a2f2; --accent-ink:#0b1424; --accent-soft:#1b2a44;
-  --free:#62c792; --free-bg:#13301f; --busy:#f2a650; --busy-bg:#36260f; --busy-strong:#e8902c;
-  --plate-bg:#f3f3ec; --plate-fg:#1b5a37; --shadow:none; color-scheme:dark;
-}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html{-webkit-text-size-adjust:100%}
@@ -312,7 +307,7 @@ tr:last-child td{border-bottom:0}
     else if (!car) sub = '車両を選んでください';
     else if (st?.inUse) { sub = `${car.name} · ${st.userName}さんの使用を返却`; ok = true; }
     else { sub = `${person.name}さん · ${car.name}`; ok = true; }
-    if (S.busy) { sub = '記録しています…'; ok = false; }
+    if (S.busy) { sub = '記録しています…（数秒かかります）'; ok = false; }
     btn.innerHTML = `<b>${esc(title)}</b><span>${esc(sub)}</span>`;
     btn.disabled = !ok;
   }
@@ -415,8 +410,16 @@ tr:last-child td{border-bottom:0}
   async function onAct() {
     const car = findCar(), person = findPerson();
     if (!car || !person || S.busy) return;
-    const inUse = !!S.status[car.id]?.inUse;
-    S.busy = true; renderAction();
+    const prev = S.status[car.id];
+    const inUse = !!prev?.inUse;
+    // 押した瞬間に画面を切り替え、記録は裏で行う（失敗したら元に戻す）
+    const t = now();
+    S.status = { ...S.status, [car.id]: inUse
+      ? { inUse: false, lastReturnMs: t, lastUserName: prev.userName }
+      : { inUse: true, userName: person.name, sinceMs: t, logId: null } };
+    S.busy = true;
+    renderCars(); renderAction();
+    toast(`${car.name} の${inUse ? '返却' : '使用開始'}を記録しています…`);
     try {
       const j = await api(inUse ? 'return' : 'start', { carId: car.id, userName: person.name });
       S.undo = { type: inUse ? 'return' : 'start', logId: j.logId };
@@ -426,7 +429,11 @@ tr:last-child td{border-bottom:0}
         ? `${hm(j.at)}　${car.name} の返却を記録しました（${dur(j.minutes)}）`
         : `${hm(j.at)}　${car.name} の使用開始を記録しました`, true);
       if (S.logsLoaded) refreshLogs();
-    } catch (e) { handleErr(e); }
+    } catch (e) {
+      S.status = { ...S.status, [car.id]: prev };
+      renderCars();
+      handleErr(e);
+    }
     finally { S.busy = false; renderAction(); }
   }
 
