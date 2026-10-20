@@ -103,11 +103,11 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 .tab{background:none;border:0;padding:10px 4px 12px;font-size:13px;font-weight:700;color:var(--muted);border-top:3px solid transparent}
 .tab[aria-selected="true"]{color:var(--accent);border-top-color:var(--accent)}
 
-/* トースト */
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(200px + env(safe-area-inset-bottom,0px));z-index:9;
-  width:min(520px,calc(100% - 32px));background:var(--ink);color:var(--bg);border-radius:12px;padding:12px 14px;
-  display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px}
-.toast button{background:none;border:1.5px solid currentColor;color:inherit;border-radius:8px;padding:6px 10px;font-weight:700;white-space:nowrap}
+/* お知らせ: 下部の固定エリアの中、ボタンの上に出す（画面の内容には重ならない） */
+.toast{background:var(--ink);color:var(--bg);border-radius:10px;padding:8px 8px 8px 12px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;line-height:1.4}
+.toast span{min-width:0;cursor:pointer}
+.toast button{background:none;border:1.5px solid currentColor;color:inherit;border-radius:8px;padding:5px 10px;font-weight:700;font-size:13px;white-space:nowrap}
 
 /* ログ */
 .filters{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -186,6 +186,7 @@ tr:last-child td{border-bottom:0}
 
 <div class="dock" id="dock">
   <div class="wrap">
+    <div class="toast" id="toast" role="status" hidden><span id="toast-msg"></span><button id="toast-undo" hidden>取り消す</button></div>
     <button class="act" id="act" disabled><b>使用開始</b><span>読み込んでいます…</span></button>
     <nav class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="rec" aria-selected="true">記録する</button>
@@ -194,13 +195,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<div class="toast" id="toast" hidden><span id="toast-msg"></span><button id="toast-undo" hidden>取り消す</button></div>
-
-<script src="config.js?v=2026.10.20-6"></script>
+<script src="config.js?v=2026.10.20-7"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.20-6';
+  const APP_VERSION = '2026.10.20-7';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -498,7 +497,13 @@ tr:last-child td{border-bottom:0}
     $('toast-undo').hidden = !undoable;
     $('toast').hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { $('toast').hidden = true; if (undoable) S.undo = null; }, undoable ? 10000 : 4000);
+    // 取り消し付きは6秒、それ以外は3秒で消す
+    toastTimer = setTimeout(hideToast, undoable ? 6000 : 3000);
+  }
+  function hideToast() {
+    clearTimeout(toastTimer);
+    $('toast').hidden = true;
+    S.undo = null;
   }
   function showConn(html) { $('conn').innerHTML = html; $('conn').hidden = false; }
   function hideConn() { if (!S.fatal) $('conn').hidden = true; }
@@ -676,6 +681,12 @@ tr:last-child td{border-bottom:0}
   document.addEventListener('submit', e => { if (e.target.id === 'admin-form') onAdminSubmit(e); });
   $('act').addEventListener('click', onAct);
   $('toast-undo').addEventListener('click', onUndo);
+  // お知らせの文字をタップするとすぐ消える
+  $('toast-msg').addEventListener('click', hideToast);
+  // 下部の固定エリアの高さ（お知らせの有無で変わる）に合わせて、画面の下の余白を取る
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => { $('main').style.paddingBottom = ($('dock').offsetHeight + 16) + 'px'; }).observe($('dock'));
+  }
   $('csv').addEventListener('click', saveCsv);
   $('f-car').addEventListener('change', renderLogs);
   $('f-person').addEventListener('change', renderLogs);
