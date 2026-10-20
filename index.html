@@ -62,6 +62,8 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 .me-name{font-family:var(--f-head);font-weight:700;font-size:17px}
 .me-sub{display:block;font-size:12px;color:var(--muted)}
 .linkbtn{background:none;border:0;padding:8px 4px;color:var(--accent);font-weight:700;font-size:13px;white-space:nowrap}
+.proxy{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;margin-top:8px;
+  background:var(--busy-bg);border-radius:10px;padding:8px 12px;font-size:13px;color:var(--busy)}
 .first{display:flex;flex-direction:column;gap:10px}
 .first p{margin:0;font-size:13px;color:var(--muted)}
 .first p b{color:var(--ink)}
@@ -194,11 +196,11 @@ tr:last-child td{border-bottom:0}
 
 <div class="toast" id="toast" hidden><span id="toast-msg"></span><button id="toast-undo" hidden>取り消す</button></div>
 
-<script src="config.js?v=2026.10.20-4"></script>
+<script src="config.js?v=2026.10.20-5"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.20-4';
+  const APP_VERSION = '2026.10.20-5';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -316,22 +318,41 @@ tr:last-child td{border-bottom:0}
   // 内容が変わったときだけ書き換える（定期更新で入力中の欄が消えないように）
   function setHTML(el, html) { if (el.__html !== html) { el.innerHTML = html; el.__html = html; } }
 
+  // 選んだ車が「自分以外の人」が使用中なら、その車と状態を返す（本人以外は返却できない）
+  function othersCar() {
+    const car = S.cars.find(c => c.id === S.carSel);
+    const st = car ? S.status[car.id] : null;
+    if (!st?.inUse) return null;
+    const me = findPerson() || S.people.find(p => p.id === S.pick);
+    return me && me.name === st.userName ? null : { car, st };
+  }
+
   function renderPeople() {
     const el = $('people');
     if (!S.loaded) return;
     const me = S.people.find(p => p.id === S.me);
+    const other = othersCar();
     $('people-hint').textContent = me ? '' : '初回のみ';
-    if (me && S.adminOpen) {
+    if (S.adminOpen === 'proxy' && !other) S.adminOpen = false;
+    const codeRow = label => `<div class="row"><input id="admin-code" type="password" inputmode="numeric" autocomplete="off" maxlength="6" aria-label="管理者コード">
+        <button class="btn primary" type="submit">${label}</button><button class="btn plain" type="button" data-admin-close="1">やめる</button></div>`;
+    if (me && S.adminOpen === 'unlock') {
       setHTML(el, `<form class="admin" id="admin-form">
-        <p>登録を解除すると、このスマホで名前を選び直せます。<b>管理者コード（6桁）</b>を入力してください。</p>
-        <div class="row"><input id="admin-code" type="password" inputmode="numeric" autocomplete="off" maxlength="6" aria-label="管理者コード">
-        <button class="btn primary" type="submit">解除</button><button class="btn plain" type="button" data-admin-close="1">やめる</button></div>
+        <p>登録を解除すると、このスマホで名前を選び直せます。<b>管理者コード（6桁）</b>を入力してください。</p>${codeRow('解除')}
+      </form>`);
+      return;
+    }
+    if (me && S.adminOpen === 'proxy') {
+      setHTML(el, `<form class="admin" id="admin-form">
+        <p><b>${esc(other.car.name)}</b>（${esc(other.st.userName)}さんが使用中）を、${esc(me.name)}さんが代理で返却します。<b>管理者コード（6桁）</b>を入力してください。</p>${codeRow('代理で返却')}
       </form>`);
       return;
     }
     if (me) {
       setHTML(el, `<div class="me-card"><div><span class="me-name">${esc(me.name)}</span> さん<span class="me-sub">このスマホに登録済み</span></div>
-        <button class="linkbtn" data-admin-open="1">変更</button></div>`);
+        <button class="linkbtn" data-admin-open="unlock">変更</button></div>
+        ${other ? `<div class="proxy"><span>この車は${esc(other.st.userName)}さんが使用中です。返却できるのは本人だけです。</span>
+        <button class="linkbtn" data-admin-open="proxy">管理者として代理返却</button></div>` : ''}`);
       return;
     }
     if (!S.people.length) {
@@ -378,10 +399,15 @@ tr:last-child td{border-bottom:0}
     const person = me || S.people.find(p => p.id === S.pick);
     const car = S.cars.find(c => c.id === S.carSel);
     const st = car ? S.status[car.id] : null;
-    btn.classList.toggle('ret', !!st?.inUse);
+    btn.classList.toggle('ret', !!st?.inUse && !othersCar());
     let title = st?.inUse ? '返却する' : '使用開始', sub = '', ok = false;
     if (!S.loaded) sub = '読み込んでいます…';
     else if (!car) sub = '① 車両を選んでください';
+    else if (st?.inUse && (me || person) && othersCar()) {
+      // 他の人が使用中の車は返却できない
+      title = '使用中';
+      sub = `${st.userName}さんが使用中です（返却は本人のみ）`;
+    }
     else if (!person) sub = '② あなたの名前を選んでください';
     else {
       ok = true;
@@ -480,6 +506,7 @@ tr:last-child td{border-bottom:0}
     if (code === 'auth') { store.set('meiwa-car-key', null); fatal(`<b>このリンクでは記録を開けません。</b><br>${PIN_MSG}`); return; }
     if (code === 'in_use') { toast(`${e.userName}さんがすでに使用中です`); applyState(e.state); return; }
     if (code === 'not_in_use') { toast('この車両はすでに返却されています'); applyState(e.state); return; }
+    if (code === 'not_owner') { toast(`${e.userName}さんが使用中です。返却できるのは本人だけです`); applyState(e.state); return; }
     if (code === 'undo_expired') { toast('時間が経ったため取り消せませんでした'); applyState(e.state); return; }
     if (code === 'unknown_user' || code === 'unknown_car') { toast('名簿が更新されました。選び直してください'); refreshState(); return; }
     if (code === 'busy') { toast('混み合っています。もう一度押してください'); return; }
@@ -494,7 +521,7 @@ tr:last-child td{border-bottom:0}
   // 押した瞬間に画面を切り替えて完了を知らせ、保存は裏で行う
   function onAct() {
     const car = findCar();
-    if (!car) return;
+    if (!car || othersCar()) return;
     if (!findPerson()) {
       // 初回：選んだ名前でこのスマホを登録してから記録する
       const pick = S.people.find(p => p.id === S.pick);
@@ -543,23 +570,36 @@ tr:last-child td{border-bottom:0}
     });
   }
 
-  // 管理者コードで登録を解除する
+  // 管理者コードで「登録の解除」または「代理返却」を行う
+  // コードが違うこともあるので、ここだけは先に画面を変えずサーバーの返事を待つ
   async function onAdminSubmit(ev) {
     ev.preventDefault();
+    const mode = S.adminOpen;
     const code = $('admin-code').value.trim();
     if (!/^\d{6}$/.test(code)) { toast('管理者コードは6桁の数字です'); return; }
     const btn = ev.target.querySelector('button[type=submit]');
+    const label = btn.textContent;
     btn.disabled = true; btn.textContent = '確認中…';
     try {
+      if (mode === 'proxy') {
+        const other = othersCar(), me = findPerson();
+        if (!other || !me) { S.adminOpen = false; renderPeople(); return; }
+        const j = await enqueue(() => api('return', { carId: other.car.id, userName: me.name, code }));
+        S.adminOpen = false;
+        applyState(j.state);
+        toast(`${hm(j.at)}　${other.car.name}（${other.st.userName}さん）を代理で返却しました`);
+        if (S.logsLoaded) refreshLogs();
+        return;
+      }
       await api('admin', { code });
       S.me = null; S.adminOpen = false;
       store.set('meiwa-car-owner', null);
       renderPeople(); renderAction();
       toast('登録を解除しました。② で名前を選び直してください');
     } catch (e) {
-      btn.disabled = false; btn.textContent = '解除';
+      btn.disabled = false; btn.textContent = label;
       if (e?.error === 'admin_auth') toast('管理者コードが違います');
-      else if (e?.error === 'admin_locked') toast('間違いが続いたため、10分間は解除できません');
+      else if (e?.error === 'admin_locked') toast('間違いが続いたため、10分間は管理者コードを受け付けません');
       else handleErr(e);
     }
   }
@@ -607,9 +647,13 @@ tr:last-child td{border-bottom:0}
     const t = e.target.closest('button'); if (!t) return;
     // 名前を選べるのは未登録のスマホだけ
     if (t.dataset.person) { if (!findPerson()) { S.pick = t.dataset.person; renderPeople(); renderAction(); } return; }
-    if (t.dataset.adminOpen) { S.adminOpen = true; renderPeople(); $('admin-code')?.focus(); return; }
+    if (t.dataset.adminOpen) { S.adminOpen = t.dataset.adminOpen; renderPeople(); $('admin-code')?.focus(); return; }
     if (t.dataset.adminClose) { S.adminOpen = false; renderPeople(); return; }
-    if (t.dataset.car) { S.carSel = S.carSel === t.dataset.car ? null : t.dataset.car; renderCars(); renderAction(); return; }
+    if (t.dataset.car) {
+      S.carSel = S.carSel === t.dataset.car ? null : t.dataset.car;
+      if (S.adminOpen === 'proxy') S.adminOpen = false;
+      renderCars(); renderPeople(); renderAction(); return;
+    }
     if (t.dataset.tab) {
       S.tab = t.dataset.tab; store.set('meiwa-car-tab', S.tab); renderTabs(); window.scrollTo(0, 0);
       if (S.tab === 'log') refreshLogs();
