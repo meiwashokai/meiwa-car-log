@@ -228,6 +228,9 @@ function start_(carId, userName) {
   if (!state.people.some(p => p.name === userName)) return { ok: false, error: 'unknown_user' };
   const cur = state.status[carId];
   if (cur && cur.inUse) return { ok: false, error: 'in_use', userName: cur.userName, state: state };
+  // 1人が同時に使えるのは1台まで
+  const using = Object.keys(state.status).find(id => state.status[id].inUse && state.status[id].userName === userName);
+  if (using) return { ok: false, error: 'already_using', carName: using, state: state };
 
   const now = new Date();
   const id = Utilities.getUuid();
