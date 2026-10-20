@@ -159,7 +159,12 @@ function computeState_() {
       if (!cur || (cur.lastReturnMs || 0) < l.endMs) status[l.carId] = { inUse: false, lastReturnMs: l.endMs, lastUserName: l.userName };
     }
   });
-  const state = { people: readPeople_(), cars: readCars_(), status: status, now: Date.now() };
+  return saveState_({ people: readPeople_(), cars: readCars_(), status: status });
+}
+
+// 状態をキャッシュに入れて返す（他の人のスマホからの読み込みも速くなる）
+function saveState_(state) {
+  state.now = Date.now();
   CacheService.getScriptCache().put('state', JSON.stringify(state), CACHE_SEC);
   return state;
 }
@@ -206,7 +211,9 @@ function start_(carId, userName) {
   const row = sh.getLastRow();
   sh.getRange(row, COL.date).setNumberFormat('yyyy/mm/dd (ddd)');
   sh.getRange(row, COL.start, 1, 2).setNumberFormat('HH:mm');
-  return { ok: true, logId: id, at: now.getTime(), state: computeState_() };
+  // シートを読み直さず、手元の状態を更新して返す（応答を速くするため）
+  state.status[carId] = { inUse: true, userName: userName, sinceMs: now.getTime(), logId: id };
+  return { ok: true, logId: id, at: now.getTime(), state: saveState_(state) };
 }
 
 function return_(carId, userName) {
@@ -221,7 +228,8 @@ function return_(carId, userName) {
   const sh = sheet_(SHEET.logs);
   sh.getRange(row, COL.end, 1, 3).setValues([[now, minutes, userName || '']]);
   sh.getRange(row, COL.endMs).setValue(now.getTime());
-  return { ok: true, logId: cur.logId, at: now.getTime(), minutes: minutes, state: computeState_() };
+  state.status[carId] = { inUse: false, lastReturnMs: now.getTime(), lastUserName: cur.userName };
+  return { ok: true, logId: cur.logId, at: now.getTime(), minutes: minutes, state: saveState_(state) };
 }
 
 function undo_(type, logId) {
