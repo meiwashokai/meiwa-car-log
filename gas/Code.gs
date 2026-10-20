@@ -8,9 +8,11 @@
  *   使用者 … A列「名前」に社員名を1行ずつ
  *   車両   … A列「車種」、B列「ナンバー」（任意）。車種名は重複させない（例：プロボックス①）
  *   ログ   … アプリが自動で書き込む。手で触らない
+ *   端末   … スマホを本人専用に登録した記録。アプリが自動で書き込む
  */
 
-const SHEET = { people: '使用者', cars: '車両', logs: 'ログ' };
+const SHEET = { people: '使用者', cars: '車両', logs: 'ログ', devices: '端末' };
+const DEVICE_HEADERS = ['登録日時', '名前', '端末ID', '端末の種類'];
 const LOG_HEADERS = ['ID', '日付', '車両', 'ナンバー', '使用者', '使用開始', '返却', '使用時間(分)', '返却者', '開始ms', '返却ms'];
 // ログシートの列番号（1始まり）
 const COL = { id: 1, date: 2, car: 3, plate: 4, user: 5, start: 6, end: 7, minutes: 8, returnedBy: 9, startMs: 10, endMs: 11 };
@@ -33,9 +35,30 @@ function setup() {
   const blank = ss.getSheetByName('シート1');
   if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
 
+  ensureSheet_(ss, SHEET.devices, DEVICE_HEADERS);
+
   const props = PropertiesService.getScriptProperties();
   if (!props.getProperty('PASSKEY')) props.setProperty('PASSKEY', newPasskey_());
-  Logger.log('セットアップ完了。合言葉：' + props.getProperty('PASSKEY'));
+  if (!props.getProperty('ADMIN_CODE')) props.setProperty('ADMIN_CODE', newAdminCode_());
+  Logger.log('セットアップ完了。合言葉：' + props.getProperty('PASSKEY') + '　管理者コード：' + props.getProperty('ADMIN_CODE'));
+}
+
+// 管理者コード（スマホの名前登録を解除するときに使う6桁の数字）を確認する。未設定なら作る
+function showAdminCode() {
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('ADMIN_CODE')) props.setProperty('ADMIN_CODE', newAdminCode_());
+  Logger.log('管理者コード：' + props.getProperty('ADMIN_CODE'));
+}
+
+// 管理者コードを作り直す（コードが漏れたとき用）
+function resetAdminCode() {
+  const code = newAdminCode_();
+  PropertiesService.getScriptProperties().setProperty('ADMIN_CODE', code);
+  Logger.log('新しい管理者コード：' + code);
+}
+
+function newAdminCode_() {
+  return String(100000 + Math.floor(Math.random() * 900000));
 }
 
 // 合言葉を確認する
@@ -85,6 +108,8 @@ function doPost(e) {
       case 'start': return json_(withLock_(() => start_(req.carId, req.userName)));
       case 'return': return json_(withLock_(() => return_(req.carId, req.userName)));
       case 'undo': return json_(withLock_(() => undo_(req.type, req.logId)));
+      case 'register': return json_(withLock_(() => register_(req.userName, req.deviceId, req.ua)));
+      case 'admin': return json_(checkAdmin_(req.code));
       default: return json_({ ok: false, error: 'bad_request' });
     }
   } catch (err) {
@@ -230,6 +255,28 @@ function return_(carId, userName) {
   sh.getRange(row, COL.endMs).setValue(now.getTime());
   state.status[carId] = { inUse: false, lastReturnMs: now.getTime(), lastUserName: cur.userName };
   return { ok: true, logId: cur.logId, at: now.getTime(), minutes: minutes, state: saveState_(state) };
+}
+
+// スマホを本人専用にした記録を残す（わざと他人の名前で登録した場合も後から確認できる）
+function register_(userName, deviceId, ua) {
+  if (!readPeople_().some(p => p.name === userName)) return { ok: false, error: 'unknown_user' };
+  const sh = ensureSheet_(SpreadsheetApp.getActiveSpreadsheet(), SHEET.devices, DEVICE_HEADERS);
+  sh.appendRow([new Date(), userName, String(deviceId || '').slice(0, 64), String(ua || '').slice(0, 200)]);
+  sh.getRange(sh.getLastRow(), 1).setNumberFormat('yyyy/mm/dd HH:mm');
+  return { ok: true };
+}
+
+// 管理者コードの確認。総当たりを防ぐため、10分間に10回間違えたら受け付けない
+function checkAdmin_(code) {
+  const cache = CacheService.getScriptCache();
+  const fails = Number(cache.get('adminFails') || 0);
+  if (fails >= 10) return { ok: false, error: 'admin_locked' };
+  const real = PropertiesService.getScriptProperties().getProperty('ADMIN_CODE');
+  if (!real || String(code) !== real) {
+    cache.put('adminFails', String(fails + 1), 600);
+    return { ok: false, error: 'admin_auth' };
+  }
+  return { ok: true };
 }
 
 function undo_(type, logId) {

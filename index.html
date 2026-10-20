@@ -57,6 +57,21 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 .chip{border:1.5px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 16px;font-weight:700;min-height:44px}
 .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 
+/* 登録済みの使用者（このスマホ専用） */
+.me-card{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px}
+.me-name{font-family:var(--f-head);font-weight:700;font-size:17px}
+.me-sub{display:block;font-size:12px;color:var(--muted)}
+.linkbtn{background:none;border:0;padding:8px 4px;color:var(--accent);font-weight:700;font-size:13px;white-space:nowrap}
+.first{display:flex;flex-direction:column;gap:10px}
+.first p{margin:0;font-size:13px;color:var(--muted)}
+.first p b{color:var(--ink)}
+.admin{display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px}
+.admin p{margin:0;font-size:13px;color:var(--muted)}
+.admin .row{display:flex;gap:8px;flex-wrap:wrap}
+.admin input{flex:1 1 120px;min-height:44px;border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;font-size:18px;letter-spacing:.3em;font-variant-numeric:tabular-nums}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);min-height:44px;padding:8px 16px;font-size:14px}
+.btn.plain{min-height:44px;padding:8px 14px;font-size:14px}
+
 /* 車両カード */
 .cars{display:flex;flex-direction:column;gap:10px}
 .car{display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 12px;text-align:left;width:100%;
@@ -138,12 +153,12 @@ tr:last-child td{border-bottom:0}
     <!-- 記録タブ -->
     <section class="panel" id="p-rec">
       <div class="sec">
-        <div class="sec-h"><span class="label">1　使用者</span><span class="hint">次回も自動で選ばれます</span></div>
-        <div class="chips" id="people"><div class="loading">読み込んでいます…</div></div>
+        <div class="sec-h"><span class="label">①　車両を選ぶ</span><span class="hint" id="car-count"></span></div>
+        <div class="cars" id="cars"><div class="loading">読み込んでいます…</div></div>
       </div>
       <div class="sec">
-        <div class="sec-h"><span class="label">2　車両</span><span class="hint" id="car-count"></span></div>
-        <div class="cars" id="cars"><div class="loading">読み込んでいます…</div></div>
+        <div class="sec-h"><span class="label">②　使用者</span><span class="hint" id="people-hint"></span></div>
+        <div id="people"><div class="loading">読み込んでいます…</div></div>
       </div>
     </section>
 
@@ -179,11 +194,11 @@ tr:last-child td{border-bottom:0}
 
 <div class="toast" id="toast" hidden><span id="toast-msg"></span><button id="toast-undo" hidden>取り消す</button></div>
 
-<script src="config.js?v=2026.10.20-3"></script>
+<script src="config.js?v=2026.10.20-4"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.20-3';
+  const APP_VERSION = '2026.10.20-4';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -215,11 +230,18 @@ tr:last-child td{border-bottom:0}
   const S = {
     key: store.get('meiwa-car-key'),
     loaded: false, people: [], cars: [], status: {}, logs: [], logsLoaded: false,
-    me: store.get('meiwa-car-me'), carSel: null,
+    // me = このスマホに登録した本人（変更は管理者コードが必要）、pick = 初回登録前に選んだ名前
+    me: store.get('meiwa-car-owner'), pick: null, adminOpen: false, carSel: null,
     tab: store.get('meiwa-car-tab') === 'log' ? 'log' : 'rec',
     month: fYM.format(Date.now()),
     pending: 0, undo: null, fatal: false, skew: 0
   };
+  // スマホを見分けるための番号（登録の記録用。個人情報は含まない）
+  let deviceId = store.get('meiwa-car-device');
+  if (!deviceId) {
+    deviceId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+    store.set('meiwa-car-device', deviceId);
+  }
   // 端末の時計ずれを補正した現在時刻
   const now = () => Date.now() + S.skew;
 
@@ -244,7 +266,9 @@ tr:last-child td{border-bottom:0}
     if (!st) return;
     S.people = st.people || []; S.cars = st.cars || []; S.status = st.status || {};
     if (st.now) S.skew = st.now - Date.now();
-    if (S.me && !S.people.some(p => p.id === S.me)) { S.me = null; store.set('meiwa-car-me', null); }
+    // 名簿から消えた人（退職など）の登録は解除し、選び直してもらう
+    if (S.me && !S.people.some(p => p.id === S.me)) { S.me = null; store.set('meiwa-car-owner', null); }
+    if (S.pick && !S.people.some(p => p.id === S.pick)) S.pick = null;
     if (S.carSel && !S.cars.some(c => c.id === S.carSel)) S.carSel = null;
     S.loaded = true;
     renderPeople(); renderCars(); renderAction(); renderLogFilters();
@@ -289,15 +313,36 @@ tr:last-child td{border-bottom:0}
   // ===== 描画 =====
   function renderToday() { $('today').textContent = fMD.format(now()) + ' ' + hm(now()); }
 
+  // 内容が変わったときだけ書き換える（定期更新で入力中の欄が消えないように）
+  function setHTML(el, html) { if (el.__html !== html) { el.innerHTML = html; el.__html = html; } }
+
   function renderPeople() {
     const el = $('people');
     if (!S.loaded) return;
-    if (!S.people.length) {
-      el.innerHTML = `<div class="empty"><b>使用者がまだ登録されていません。</b><br>管理者がスプレッドシートの「使用者」シートに名前を追加すると、ここに表示されます。</div>`;
+    const me = S.people.find(p => p.id === S.me);
+    $('people-hint').textContent = me ? '' : '初回のみ';
+    if (me && S.adminOpen) {
+      setHTML(el, `<form class="admin" id="admin-form">
+        <p>登録を解除すると、このスマホで名前を選び直せます。<b>管理者コード（6桁）</b>を入力してください。</p>
+        <div class="row"><input id="admin-code" type="password" inputmode="numeric" autocomplete="off" maxlength="6" aria-label="管理者コード">
+        <button class="btn primary" type="submit">解除</button><button class="btn plain" type="button" data-admin-close="1">やめる</button></div>
+      </form>`);
       return;
     }
-    el.innerHTML = S.people.map(p =>
-      `<button class="chip" data-person="${esc(p.id)}" aria-pressed="${p.id === S.me}">${esc(p.name)}</button>`).join('');
+    if (me) {
+      setHTML(el, `<div class="me-card"><div><span class="me-name">${esc(me.name)}</span> さん<span class="me-sub">このスマホに登録済み</span></div>
+        <button class="linkbtn" data-admin-open="1">変更</button></div>`);
+      return;
+    }
+    if (!S.people.length) {
+      setHTML(el, `<div class="empty"><b>使用者がまだ登録されていません。</b><br>管理者がスプレッドシートの「使用者」シートに名前を追加すると、ここに表示されます。</div>`);
+      return;
+    }
+    setHTML(el, `<div class="first">
+      <p><b>あなたの名前を選んでください。</b>このスマホは選んだ人専用になり、次回からは選ぶ必要がありません（変更は管理者のみ）。</p>
+      <div class="chips">${S.people.map(p =>
+        `<button class="chip" data-person="${esc(p.id)}" aria-pressed="${p.id === S.pick}">${esc(p.name)}</button>`).join('')}</div>
+    </div>`);
   }
 
   function renderCars() {
@@ -329,16 +374,24 @@ tr:last-child td{border-bottom:0}
     btn.hidden = !show;
     $('main').classList.toggle('no-action', !show);
     if (!show) return;
-    const person = S.people.find(p => p.id === S.me);
+    const me = findPerson();
+    const person = me || S.people.find(p => p.id === S.pick);
     const car = S.cars.find(c => c.id === S.carSel);
     const st = car ? S.status[car.id] : null;
     btn.classList.toggle('ret', !!st?.inUse);
     let title = st?.inUse ? '返却する' : '使用開始', sub = '', ok = false;
     if (!S.loaded) sub = '読み込んでいます…';
-    else if (!person) sub = '使用者を選んでください';
-    else if (!car) sub = '車両を選んでください';
-    else if (st?.inUse) { sub = `${car.name} · ${st.userName}さんの使用を返却`; ok = true; }
-    else { sub = `${person.name}さん · ${car.name}`; ok = true; }
+    else if (!car) sub = '① 車両を選んでください';
+    else if (!person) sub = '② あなたの名前を選んでください';
+    else {
+      ok = true;
+      if (!me) {
+        // 初回は登録と同時に記録する
+        title = `${person.name}さんで${st?.inUse ? '返却' : '使用開始'}`;
+        sub = `このスマホを${person.name}さん専用に登録します`;
+      } else if (st?.inUse) sub = `${car.name} · ${st.userName}さんの使用を返却`;
+      else sub = `${person.name}さん · ${car.name}`;
+    }
     btn.innerHTML = `<b>${esc(title)}</b><span>${esc(sub)}</span>`;
     btn.disabled = !ok;
   }
@@ -440,8 +493,16 @@ tr:last-child td{border-bottom:0}
   // ===== 使用開始・返却 =====
   // 押した瞬間に画面を切り替えて完了を知らせ、保存は裏で行う
   function onAct() {
-    const car = findCar(), person = findPerson();
-    if (!car || !person) return;
+    const car = findCar();
+    if (!car) return;
+    if (!findPerson()) {
+      // 初回：選んだ名前でこのスマホを登録してから記録する
+      const pick = S.people.find(p => p.id === S.pick);
+      if (!pick) return;
+      registerDevice(pick);
+    }
+    const person = findPerson();
+    if (!person) return;
     const prev = S.status[car.id];
     const inUse = !!prev?.inUse;
     const t = now();
@@ -469,6 +530,38 @@ tr:last-child td{border-bottom:0}
         if (!e?.state) await resync();
       }
     });
+  }
+
+  // このスマホを本人専用にする。画面ではすぐ確定し、登録の記録は裏で送る
+  function registerDevice(person) {
+    S.me = person.id; S.pick = null;
+    store.set('meiwa-car-owner', S.me);
+    renderPeople();
+    enqueue(async () => {
+      try { await api('register', { userName: person.name, deviceId, ua: navigator.userAgent.slice(0, 200) }); }
+      catch (e) { if (e?.error === 'auth') handleErr(e); } // 登録の記録に失敗しても使用は続けられる
+    });
+  }
+
+  // 管理者コードで登録を解除する
+  async function onAdminSubmit(ev) {
+    ev.preventDefault();
+    const code = $('admin-code').value.trim();
+    if (!/^\d{6}$/.test(code)) { toast('管理者コードは6桁の数字です'); return; }
+    const btn = ev.target.querySelector('button[type=submit]');
+    btn.disabled = true; btn.textContent = '確認中…';
+    try {
+      await api('admin', { code });
+      S.me = null; S.adminOpen = false;
+      store.set('meiwa-car-owner', null);
+      renderPeople(); renderAction();
+      toast('登録を解除しました。② で名前を選び直してください');
+    } catch (e) {
+      btn.disabled = false; btn.textContent = '解除';
+      if (e?.error === 'admin_auth') toast('管理者コードが違います');
+      else if (e?.error === 'admin_locked') toast('間違いが続いたため、10分間は解除できません');
+      else handleErr(e);
+    }
   }
 
   function onUndo() {
@@ -512,13 +605,17 @@ tr:last-child td{border-bottom:0}
   // ===== イベント =====
   document.addEventListener('click', e => {
     const t = e.target.closest('button'); if (!t) return;
-    if (t.dataset.person) { S.me = t.dataset.person; store.set('meiwa-car-me', S.me); renderPeople(); renderAction(); return; }
+    // 名前を選べるのは未登録のスマホだけ
+    if (t.dataset.person) { if (!findPerson()) { S.pick = t.dataset.person; renderPeople(); renderAction(); } return; }
+    if (t.dataset.adminOpen) { S.adminOpen = true; renderPeople(); $('admin-code')?.focus(); return; }
+    if (t.dataset.adminClose) { S.adminOpen = false; renderPeople(); return; }
     if (t.dataset.car) { S.carSel = S.carSel === t.dataset.car ? null : t.dataset.car; renderCars(); renderAction(); return; }
     if (t.dataset.tab) {
       S.tab = t.dataset.tab; store.set('meiwa-car-tab', S.tab); renderTabs(); window.scrollTo(0, 0);
       if (S.tab === 'log') refreshLogs();
     }
   });
+  document.addEventListener('submit', e => { if (e.target.id === 'admin-form') onAdminSubmit(e); });
   $('act').addEventListener('click', onAct);
   $('toast-undo').addEventListener('click', onUndo);
   $('csv').addEventListener('click', saveCsv);
