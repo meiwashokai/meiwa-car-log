@@ -1,0 +1,5 @@
+# OS・エディタの不要ファイル
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
