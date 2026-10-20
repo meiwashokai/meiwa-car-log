@@ -196,11 +196,11 @@ tr:last-child td{border-bottom:0}
 
 <div class="toast" id="toast" hidden><span id="toast-msg"></span><button id="toast-undo" hidden>取り消す</button></div>
 
-<script src="config.js?v=2026.10.20-5"></script>
+<script src="config.js?v=2026.10.20-6"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.20-5';
+  const APP_VERSION = '2026.10.20-6';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -327,6 +327,12 @@ tr:last-child td{border-bottom:0}
     return me && me.name === st.userName ? null : { car, st };
   }
 
+  // その人が今使用中の車の名前（なければ null）
+  function usingCar(person) {
+    const id = Object.keys(S.status).find(k => S.status[k]?.inUse && S.status[k].userName === person.name);
+    return id ? (S.cars.find(c => c.id === id)?.name || id) : null;
+  }
+
   function renderPeople() {
     const el = $('people');
     if (!S.loaded) return;
@@ -403,6 +409,11 @@ tr:last-child td{border-bottom:0}
     let title = st?.inUse ? '返却する' : '使用開始', sub = '', ok = false;
     if (!S.loaded) sub = '読み込んでいます…';
     else if (!car) sub = '① 車両を選んでください';
+    else if (!st?.inUse && person && usingCar(person)) {
+      // 1人1台まで。使用中の車を返してからでないと使えない
+      title = '使用できません';
+      sub = `${usingCar(person)} を返却してから使用してください`;
+    }
     else if (st?.inUse && (me || person) && othersCar()) {
       // 他の人が使用中の車は返却できない
       title = '使用中';
@@ -506,6 +517,7 @@ tr:last-child td{border-bottom:0}
     if (code === 'auth') { store.set('meiwa-car-key', null); fatal(`<b>このリンクでは記録を開けません。</b><br>${PIN_MSG}`); return; }
     if (code === 'in_use') { toast(`${e.userName}さんがすでに使用中です`); applyState(e.state); return; }
     if (code === 'not_in_use') { toast('この車両はすでに返却されています'); applyState(e.state); return; }
+    if (code === 'already_using') { toast(`${e.carName} を使用中です。返却してから使用してください`); applyState(e.state); return; }
     if (code === 'not_owner') { toast(`${e.userName}さんが使用中です。返却できるのは本人だけです`); applyState(e.state); return; }
     if (code === 'undo_expired') { toast('時間が経ったため取り消せませんでした'); applyState(e.state); return; }
     if (code === 'unknown_user' || code === 'unknown_car') { toast('名簿が更新されました。選び直してください'); refreshState(); return; }
@@ -522,6 +534,8 @@ tr:last-child td{border-bottom:0}
   function onAct() {
     const car = findCar();
     if (!car || othersCar()) return;
+    const who = findPerson() || S.people.find(p => p.id === S.pick);
+    if (!S.status[car.id]?.inUse && who && usingCar(who)) return;
     if (!findPerson()) {
       // 初回：選んだ名前でこのスマホを登録してから記録する
       const pick = S.people.find(p => p.id === S.pick);
