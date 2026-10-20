@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#f2f4f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e131a" media="(prefers-color-scheme: dark)">
+<title>明和商会 社有車ログ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Kaku+Gothic+New:wght@700;900&display=swap">
+<style>
+/* レイアウト: スマホ1カラム。上=使用者チップ、中=車両カード、下=固定の大ボタンとタブ */
+:root{
+  --bg:#f2f4f7; --surface:#ffffff; --ink:#152030; --muted:#5b6778; --line:#d8dee7;
+  --accent:#1f4fa3; --accent-ink:#ffffff; --accent-soft:#e3ebf8;
+  --free:#1d7347; --free-bg:#e5f3ea; --busy:#a85a06; --busy-bg:#fdf0dd; --busy-strong:#c66a08;
+  --plate-bg:#fbfbf6; --plate-fg:#1b5a37; --shadow:0 1px 2px rgba(20,32,48,.06);
+  --f-body:"BIZ UDPGothic","Hiragino Sans","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+  --f-head:"Zen Kaku Gothic New","BIZ UDPGothic","Hiragino Sans","Yu Gothic UI",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0e131a; --surface:#17202b; --ink:#e5eaf1; --muted:#98a4b4; --line:#2a3544;
+  --accent:#78a2f2; --accent-ink:#0b1424; --accent-soft:#1b2a44;
+  --free:#62c792; --free-bg:#13301f; --busy:#f2a650; --busy-bg:#36260f; --busy-strong:#e8902c;
+  --plate-bg:#f3f3ec; --plate-fg:#1b5a37; --shadow:none; color-scheme:dark;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.6;-webkit-tap-highlight-color:transparent;
+  padding-top:env(safe-area-inset-top,0px)}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.wrap{max-width:560px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-block:12px}
+.brand{font-family:var(--f-head);font-weight:900;font-size:19px;letter-spacing:.04em}
+.brand small{display:block;font-family:var(--f-body);font-weight:400;font-size:11px;letter-spacing:.12em;color:var(--muted)}
+.today{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+main{padding-bottom:calc(190px + env(safe-area-inset-bottom,0px))}
+main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
+.panel{display:flex;flex-direction:column;gap:22px;padding-block:18px}
+.sec{display:flex;flex-direction:column;gap:10px;min-width:0}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.label{font-size:12px;font-weight:700;letter-spacing:.12em;color:var(--muted)}
+.hint{font-size:12px;color:var(--muted)}
+
+/* 使用者チップ */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1.5px solid var(--line);background:var(--surface);border-radius:999px;padding:9px 16px;font-weight:700;min-height:44px}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+
+/* 車両カード */
+.cars{display:flex;flex-direction:column;gap:10px}
+.car{display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 12px;text-align:left;width:100%;
+  background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:14px;box-shadow:var(--shadow)}
+.car[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+.car-name{font-family:var(--f-head);font-weight:700;font-size:17px;min-width:0}
+.car-meta{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:13px;color:var(--muted)}
+.plate{display:inline-block;background:var(--plate-bg);color:var(--plate-fg);border:2px solid var(--plate-fg);border-radius:4px;
+  padding:1px 8px;font-weight:700;font-size:13px;letter-spacing:.06em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.free{background:var(--free-bg);color:var(--free)}
+.pill.busy{background:var(--busy-bg);color:var(--busy)}
+.busy-by{color:var(--ink);font-weight:700}
+.num{font-variant-numeric:tabular-nums}
+
+/* 下部固定: アクション + タブ */
+.dock{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+.dock .wrap{display:flex;flex-direction:column;gap:10px;padding-block:10px 0}
+.act{width:100%;min-height:62px;border:0;border-radius:14px;background:var(--accent);color:var(--accent-ink);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 12px}
+.act b{font-family:var(--f-head);font-size:20px;letter-spacing:.08em}
+.act span{font-size:12px;opacity:.9}
+.act.ret{background:var(--busy-strong);color:#fff}
+.act:disabled{background:var(--line);color:var(--muted);cursor:not-allowed}
+.tabs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr}
+.tab{background:none;border:0;padding:10px 4px 12px;font-size:13px;font-weight:700;color:var(--muted);border-top:3px solid transparent}
+.tab[aria-selected="true"]{color:var(--accent);border-top-color:var(--accent)}
+
+/* トースト */
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(200px + env(safe-area-inset-bottom,0px));z-index:9;
+  width:min(520px,calc(100% - 32px));background:var(--ink);color:var(--bg);border-radius:12px;padding:12px 14px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px}
+.toast button{background:none;border:1.5px solid currentColor;color:inherit;border-radius:8px;padding:6px 10px;font-weight:700;white-space:nowrap}
+
+/* ログ */
+.filters{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.filters .full{grid-column:1/-1}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field label{font-size:12px;color:var(--muted)}
+input[type=month],select{width:100%;min-height:44px;border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px}
+.summary{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;color:var(--muted);font-weight:700}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:0}
+.day{display:flex;flex-direction:column;gap:6px}
+.day-h{font-size:13px;font-weight:700;color:var(--muted);padding-top:4px}
+.log{display:grid;grid-template-columns:auto 1fr auto;gap:2px 12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.log .t{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.log .who{min-width:0}
+.log .who div:first-child{font-weight:700}
+.log .who div+div{font-size:12px;color:var(--muted)}
+.log .d{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.log .open{color:var(--busy);font-weight:700}
+.btn{border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding:4px 10px;font-weight:700;min-height:32px;font-size:12px}
+
+.empty{background:var(--surface);border:1.5px dashed var(--line);border-radius:12px;padding:18px 16px;color:var(--muted);font-size:14px}
+.empty b{color:var(--ink)}
+.notice{background:var(--accent-soft);border-radius:12px;padding:14px 16px;font-size:14px;margin-top:18px}
+.loading{color:var(--muted);font-size:14px;padding:6px 2px}
+@media (prefers-reduced-motion: no-preference){.chip,.car,.act,.tab{transition:background-color .15s,border-color .15s,box-shadow .15s}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">社有車ログ<small>MEIWA SHOKAI</small></div>
+    <div class="today num" id="today"></div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <div id="conn" class="notice" hidden></div>
+
+    <!-- 記録タブ -->
+    <section class="panel" id="p-rec">
+      <div class="sec">
+        <div class="sec-h"><span class="label">1　使用者</span><span class="hint">次回も自動で選ばれます</span></div>
+        <div class="chips" id="people"><div class="loading">読み込んでいます…</div></div>
+      </div>
+      <div class="sec">
+        <div class="sec-h"><span class="label">2　車両</span><span class="hint" id="car-count"></span></div>
+        <div class="cars" id="cars"><div class="loading">読み込んでいます…</div></div>
+      </div>
+    </section>
+
+    <!-- ログタブ -->
+    <section class="panel" id="p-log" hidden>
+      <div class="filters">
+        <div class="field full"><label for="f-month">月</label><input type="month" id="f-month"></div>
+        <div class="field"><label for="f-car">車両</label><select id="f-car"></select></div>
+        <div class="field"><label for="f-person">使用者</label><select id="f-person"></select></div>
+      </div>
+      <div class="sec">
+        <div class="sec-h"><span class="label">月のまとめ</span><button class="btn" id="csv" hidden>CSVで保存</button></div>
+        <div id="summary"><div class="loading">読み込んでいます…</div></div>
+      </div>
+      <div class="sec">
+        <div class="label">記録</div>
+        <div id="logs" class="sec"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div class="dock" id="dock">
+  <div class="wrap">
+    <button class="act" id="act" disabled><b>使用開始</b><span>読み込んでいます…</span></button>
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="rec" aria-selected="true">記録する</button>
+      <button class="tab" role="tab" data-tab="log" aria-selected="false">ログ</button>
+    </nav>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden><span id="toast-msg"></span><button id="toast-undo" hidden>取り消す</button></div>
+
+<script src="config.js"></script>
+<script>
+(() => {
+  const CFG = window.CAR_LOG_CONFIG || {};
+  const POLL_MS = 20000;
+
+  // ===== 日時フォーマット（日本時間で統一） =====
+  const TZ = 'Asia/Tokyo';
+  const fHM = new Intl.DateTimeFormat('ja-JP', { timeZone: TZ, hour: 'numeric', minute: '2-digit' });
+  const fMD = new Intl.DateTimeFormat('ja-JP', { timeZone: TZ, month: 'numeric', day: 'numeric', weekday: 'short' });
+  const fFull = new Intl.DateTimeFormat('ja-JP', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const fYM = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit' });
+  const hm = ms => fHM.format(ms);
+  const dur = min => min < 60 ? `${min}分` : `${Math.floor(min / 60)}時間${String(min % 60).padStart(2, '0')}分`;
+  const mins = (a, b) => Math.max(0, Math.round((b - a) / 60000));
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const $ = id => document.getElementById(id);
+
+  // ===== 端末ごとの記憶（合言葉・選んだ使用者・タブ） =====
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
+  };
+
+  // ピン止めリンクの # 以降を合言葉として保存し、アドレスバーからは消す
+  if (location.hash.length > 1) {
+    store.set('meiwa-car-key', decodeURIComponent(location.hash.slice(1)));
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+
+  // ===== 状態 =====
+  const S = {
+    key: store.get('meiwa-car-key'),
+    loaded: false, people: [], cars: [], status: {}, logs: [], logsLoaded: false,
+    me: store.get('meiwa-car-me'), carSel: null,
+    tab: store.get('meiwa-car-tab') === 'log' ? 'log' : 'rec',
+    month: fYM.format(Date.now()),
+    busy: false, undo: null, fatal: false, skew: 0
+  };
+  // 端末の時計ずれを補正した現在時刻
+  const now = () => Date.now() + S.skew;
+
+  // ===== 通信 =====
+  async function api(action, payload = {}) {
+    let res;
+    try {
+      // text/plain で送ると Apps Script 側で余計な事前確認が起きない
+      res = await fetch(CFG.apiUrl, { method: 'POST', body: JSON.stringify({ action, key: S.key, ...payload }) });
+    } catch { throw { error: 'network' }; }
+    if (!res.ok) throw { error: 'network' };
+    const j = await res.json().catch(() => ({ ok: false, error: 'network' }));
+    if (!j.ok) throw j;
+    return j;
+  }
+
+  function applyState(st) {
+    if (!st) return;
+    S.people = st.people || []; S.cars = st.cars || []; S.status = st.status || {};
+    if (st.now) S.skew = st.now - Date.now();
+    if (S.me && !S.people.some(p => p.id === S.me)) { S.me = null; store.set('meiwa-car-me', null); }
+    if (S.carSel && !S.cars.some(c => c.id === S.carSel)) S.carSel = null;
+    S.loaded = true;
+    renderPeople(); renderCars(); renderAction(); renderLogFilters();
+  }
+
+  async function refreshState() {
+    if (S.busy || S.fatal) return;
+    try { applyState((await api('state')).state); hideConn(); }
+    catch (e) { handleErr(e, true); }
+  }
+
+  async function refreshLogs() {
+    if (S.fatal) return;
+    const month = S.month;
+    try {
+      const j = await api('logs', { month });
+      if (month !== S.month) return; // 途中で月を切り替えた場合は捨てる
+      S.logs = j.logs || []; S.logsLoaded = true;
+      renderLogFilters(); renderLogs();
+    } catch (e) { handleErr(e, true); }
+  }
+
+  // ===== 描画 =====
+  function renderToday() { $('today').textContent = fMD.format(now()) + ' ' + hm(now()); }
+
+  function renderPeople() {
+    const el = $('people');
+    if (!S.loaded) return;
+    if (!S.people.length) {
+      el.innerHTML = `<div class="empty"><b>使用者がまだ登録されていません。</b><br>管理者がスプレッドシートの「使用者」シートに名前を追加すると、ここに表示されます。</div>`;
+      return;
+    }
+    el.innerHTML = S.people.map(p =>
+      `<button class="chip" data-person="${esc(p.id)}" aria-pressed="${p.id === S.me}">${esc(p.name)}</button>`).join('');
+  }
+
+  function renderCars() {
+    const el = $('cars');
+    if (!S.loaded) return;
+    const busyN = S.cars.filter(c => S.status[c.id]?.inUse).length;
+    $('car-count').textContent = S.cars.length ? `${S.cars.length}台中 ${busyN}台 使用中` : '';
+    if (!S.cars.length) {
+      el.innerHTML = `<div class="empty"><b>車両がまだ登録されていません。</b><br>管理者がスプレッドシートの「車両」シートに車種とナンバーを追加すると、ここに表示されます。</div>`;
+      return;
+    }
+    const t = now();
+    el.innerHTML = S.cars.map(c => {
+      const st = S.status[c.id];
+      const pill = st?.inUse ? `<span class="pill busy">使用中</span>` : `<span class="pill free">空き</span>`;
+      const meta = st?.inUse
+        ? `<span><span class="busy-by">${esc(st.userName)}</span>さん · <span class="num">${hm(st.sinceMs)}</span>から（${dur(mins(st.sinceMs, t))}）</span>`
+        : (st?.lastReturnMs ? `<span>最終返却 <span class="num">${fMD.format(st.lastReturnMs)} ${hm(st.lastReturnMs)}</span></span>` : '');
+      return `<button class="car" data-car="${esc(c.id)}" aria-pressed="${c.id === S.carSel}">
+        <span class="car-name">${esc(c.name)}</span>${pill}
+        <span class="car-meta">${c.plate ? `<span class="plate">${esc(c.plate)}</span>` : ''}${meta}</span>
+      </button>`;
+    }).join('');
+  }
+
+  function renderAction() {
+    const btn = $('act');
+    const show = S.tab === 'rec' && !S.fatal;
+    btn.hidden = !show;
+    $('main').classList.toggle('no-action', !show);
+    if (!show) return;
+    const person = S.people.find(p => p.id === S.me);
+    const car = S.cars.find(c => c.id === S.carSel);
+    const st = car ? S.status[car.id] : null;
+    btn.classList.toggle('ret', !!st?.inUse);
+    let title = st?.inUse ? '返却する' : '使用開始', sub = '', ok = false;
+    if (!S.loaded) sub = '読み込んでいます…';
+    else if (!person) sub = '使用者を選んでください';
+    else if (!car) sub = '車両を選んでください';
+    else if (st?.inUse) { sub = `${car.name} · ${st.userName}さんの使用を返却`; ok = true; }
+    else { sub = `${person.name}さん · ${car.name}`; ok = true; }
+    if (S.busy) { sub = '記録しています…'; ok = false; }
+    btn.innerHTML = `<b>${esc(title)}</b><span>${esc(sub)}</span>`;
+    btn.disabled = !ok;
+  }
+
+  function filteredLogs() {
+    const fc = $('f-car').value, fp = $('f-person').value;
+    return S.logs.filter(l => (!fc || l.carId === fc) && (!fp || l.userName === fp));
+  }
+
+  function renderLogFilters() {
+    // 選択値を保ったまま選択肢を作り直す
+    const keep = (sel, opts) => {
+      const v = sel.value;
+      sel.innerHTML = `<option value="">すべて</option>` + opts.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+      sel.value = opts.includes(v) ? v : '';
+    };
+    // 車両・使用者はシートの一覧＋ログ内の名前（削除済み含む）
+    const cars = new Set(S.cars.map(c => c.id)); S.logs.forEach(l => cars.add(l.carId));
+    const names = new Set(S.people.map(p => p.name)); S.logs.forEach(l => names.add(l.userName));
+    keep($('f-car'), [...cars]);
+    keep($('f-person'), [...names]);
+  }
+
+  function renderLogs() {
+    if (!S.logsLoaded) return;
+    const list = filteredLogs();
+    const t = now();
+    $('csv').hidden = !list.length;
+
+    // 車両ごとの集計
+    const agg = new Map();
+    list.forEach(l => {
+      const a = agg.get(l.carId) || { name: l.carName, n: 0, m: 0 };
+      a.n++; a.m += mins(l.startMs, l.endMs || t);
+      agg.set(l.carId, a);
+    });
+    const totalM = [...agg.values()].reduce((s, a) => s + a.m, 0);
+    $('summary').innerHTML = !list.length
+      ? `<div class="empty">この月の記録はありません。「記録する」タブで使用開始をタップすると、ここにたまっていきます。</div>`
+      : `<div class="summary"><table><thead><tr><th>車両</th><th class="r">回数</th><th class="r">使用時間</th></tr></thead><tbody>
+          ${[...agg.values()].map(a => `<tr><td>${esc(a.name)}</td><td class="r">${a.n}回</td><td class="r">${dur(a.m)}</td></tr>`).join('')}
+          ${agg.size > 1 ? `<tr><td><b>合計</b></td><td class="r"><b>${list.length}回</b></td><td class="r"><b>${dur(totalM)}</b></td></tr>` : ''}
+        </tbody></table></div>`;
+
+    // 日付ごとのリスト
+    const days = new Map();
+    list.forEach(l => { const k = fMD.format(l.startMs); (days.get(k) || days.set(k, []).get(k)).push(l); });
+    $('logs').innerHTML = [...days].map(([d, ls]) => `<div class="day"><div class="day-h">${esc(d)}</div>${ls.map(l => {
+      const range = `${hm(l.startMs)}–${l.endMs ? hm(l.endMs) : ''}`;
+      const sub = [l.plate, l.returnedBy && l.returnedBy !== l.userName ? `返却：${l.returnedBy}さん` : ''].filter(Boolean).join(' · ');
+      const right = l.endMs ? dur(mins(l.startMs, l.endMs)) : `<span class="open">使用中</span>`;
+      return `<div class="log"><span class="t">${range}</span><div class="who"><div>${esc(l.userName)} · ${esc(l.carName)}</div>${sub ? `<div>${esc(sub)}</div>` : ''}</div><span class="d">${right}</span></div>`;
+    }).join('')}</div>`).join('');
+  }
+
+  function renderTabs() {
+    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === S.tab)));
+    $('p-rec').hidden = S.tab !== 'rec';
+    $('p-log').hidden = S.tab !== 'log';
+    renderAction();
+  }
+
+  // ===== お知らせ・エラー =====
+  let toastTimer;
+  function toast(msg, undoable = false) {
+    $('toast-msg').textContent = msg;
+    $('toast-undo').hidden = !undoable;
+    $('toast').hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { $('toast').hidden = true; if (undoable) S.undo = null; }, undoable ? 10000 : 4000);
+  }
+  function showConn(html) { $('conn').innerHTML = html; $('conn').hidden = false; }
+  function hideConn() { if (!S.fatal) $('conn').hidden = true; }
+
+  // 開けない状態（設定漏れ・合言葉なし）は画面全体で案内する
+  function fatal(html) {
+    S.fatal = true;
+    showConn(html);
+    $('p-rec').hidden = true; $('p-log').hidden = true; $('dock').hidden = true;
+    $('main').classList.add('no-action');
+  }
+  const PIN_MSG = 'Mattermost の「車両管理」チャンネルにピン止めされたリンクから開き直してください。';
+
+  function handleErr(e, quiet = false) {
+    const code = e?.error;
+    if (code === 'auth') { store.set('meiwa-car-key', null); fatal(`<b>このリンクでは記録を開けません。</b><br>${PIN_MSG}`); return; }
+    if (code === 'in_use') { toast(`${e.userName}さんがすでに使用中です`); applyState(e.state); return; }
+    if (code === 'not_in_use') { toast('この車両はすでに返却されています'); applyState(e.state); return; }
+    if (code === 'undo_expired') { toast('時間が経ったため取り消せませんでした'); applyState(e.state); return; }
+    if (code === 'unknown_user' || code === 'unknown_car') { toast('名簿が更新されました。選び直してください'); refreshState(); return; }
+    if (code === 'busy') { toast('混み合っています。もう一度押してください'); return; }
+    if (quiet) { showConn('通信できません。電波の良い場所で開き直すと最新の状態になります。'); return; }
+    toast('通信できず記録できませんでした。もう一度押してください');
+  }
+
+  const findPerson = () => S.people.find(p => p.id === S.me);
+  const findCar = () => S.cars.find(c => c.id === S.carSel);
+
+  // ===== 使用開始・返却 =====
+  async function onAct() {
+    const car = findCar(), person = findPerson();
+    if (!car || !person || S.busy) return;
+    const inUse = !!S.status[car.id]?.inUse;
+    S.busy = true; renderAction();
+    try {
+      const j = await api(inUse ? 'return' : 'start', { carId: car.id, userName: person.name });
+      S.undo = { type: inUse ? 'return' : 'start', logId: j.logId };
+      S.busy = false;
+      applyState(j.state);
+      toast(inUse
+        ? `${hm(j.at)}　${car.name} の返却を記録しました（${dur(j.minutes)}）`
+        : `${hm(j.at)}　${car.name} の使用開始を記録しました`, true);
+      if (S.logsLoaded) refreshLogs();
+    } catch (e) { handleErr(e); }
+    finally { S.busy = false; renderAction(); }
+  }
+
+  async function onUndo() {
+    const u = S.undo; if (!u || S.busy) return;
+    S.undo = null; $('toast').hidden = true;
+    S.busy = true; renderAction();
+    try {
+      const j = await api('undo', u);
+      S.busy = false;
+      applyState(j.state);
+      toast('取り消しました');
+      if (S.logsLoaded) refreshLogs();
+    } catch (e) { handleErr(e); }
+    finally { S.busy = false; renderAction(); }
+  }
+
+  // ===== CSV保存 =====
+  function saveCsv() {
+    const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = [['車両', 'ナンバー', '使用者', '使用開始', '返却', '返却者', '使用時間(分)']];
+    filteredLogs().slice().reverse().forEach(l => rows.push([
+      l.carName, l.plate, l.userName, fFull.format(l.startMs), l.endMs ? fFull.format(l.endMs) : '使用中',
+      l.returnedBy || '', l.endMs ? mins(l.startMs, l.endMs) : ''
+    ]));
+    // Excelで文字化けしないようBOM付き
+    const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `社有車ログ_${S.month}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  // ===== イベント =====
+  document.addEventListener('click', e => {
+    const t = e.target.closest('button'); if (!t) return;
+    if (t.dataset.person) { S.me = t.dataset.person; store.set('meiwa-car-me', S.me); renderPeople(); renderAction(); return; }
+    if (t.dataset.car) { S.carSel = S.carSel === t.dataset.car ? null : t.dataset.car; renderCars(); renderAction(); return; }
+    if (t.dataset.tab) {
+      S.tab = t.dataset.tab; store.set('meiwa-car-tab', S.tab); renderTabs(); window.scrollTo(0, 0);
+      if (S.tab === 'log') refreshLogs();
+    }
+  });
+  $('act').addEventListener('click', onAct);
+  $('toast-undo').addEventListener('click', onUndo);
+  $('csv').addEventListener('click', saveCsv);
+  $('f-car').addEventListener('change', renderLogs);
+  $('f-person').addEventListener('change', renderLogs);
+  $('f-month').addEventListener('change', () => {
+    if (!$('f-month').value) return;
+    S.month = $('f-month').value; S.logsLoaded = false;
+    $('summary').innerHTML = '<div class="loading">読み込んでいます…</div>'; $('logs').innerHTML = '';
+    refreshLogs();
+  });
+  // アプリに戻ってきたら最新の状態を取り直す
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { refreshState(); if (S.tab === 'log') refreshLogs(); }
+  });
+
+  // ===== 起動 =====
+  $('f-month').value = S.month;
+  renderToday(); renderTabs();
+  setInterval(() => { renderToday(); if (S.tab === 'rec') renderCars(); }, 30000);
+
+  if (!CFG.apiUrl) { fatal('<b>接続先が設定されていません。</b><br>管理者が config.js に Apps Script の URL を設定してください。'); return; }
+  if (!S.key) { fatal(`<b>最初の1回はリンクから開いてください。</b><br>${PIN_MSG}`); return; }
+
+  refreshState();
+  if (S.tab === 'log') refreshLogs();
+  setInterval(() => { if (document.visibilityState === 'visible') refreshState(); }, POLL_MS);
+})();
+</script>
+</body>
+</html>
