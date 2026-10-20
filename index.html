@@ -76,14 +76,15 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 
 /* 車両カード */
 .cars{display:flex;flex-direction:column;gap:10px}
-.car{display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 12px;text-align:left;width:100%;
-  background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:14px;box-shadow:var(--shadow)}
-.car[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
-.car-name{font-family:var(--f-head);font-weight:700;font-size:17px;min-width:0}
-.car-meta{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:13px;color:var(--muted)}
+.car{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px 12px;text-align:left;width:100%;
+  background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:16px;box-shadow:var(--shadow)}
+.car[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent) inset}
+/* 車種名はスマホでひと目で読めるよう大きく（画面幅に合わせて26〜32px） */
+.car-name{font-family:var(--f-head);font-weight:900;font-size:clamp(26px,7.6vw,32px);line-height:1.2;letter-spacing:.02em;min-width:0;overflow-wrap:anywhere}
+.car-meta{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:14px;color:var(--muted)}
 .plate{display:inline-block;background:var(--plate-bg);color:var(--plate-fg);border:2px solid var(--plate-fg);border-radius:4px;
-  padding:1px 8px;font-weight:700;font-size:13px;letter-spacing:.06em;font-variant-numeric:tabular-nums;white-space:nowrap}
-.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+  padding:1px 8px;font-weight:700;font-size:14px;letter-spacing:.06em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 12px;font-size:14px;font-weight:700;white-space:nowrap}
 .pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
 .pill.free{background:var(--free-bg);color:var(--free)}
 .pill.busy{background:var(--busy-bg);color:var(--busy)}
@@ -195,11 +196,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.20-7"></script>
+<script src="config.js?v=2026.10.20-8"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.20-7';
+  const APP_VERSION = '2026.10.20-8';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
