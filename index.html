@@ -49,6 +49,12 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 .panel{display:flex;flex-direction:column;gap:22px;padding-block:18px}
 .sec{display:flex;flex-direction:column;gap:10px;min-width:0}
 .sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+/* 記録タブの手順見出し（1 車両を選ぶ → 2 使用者）は大きく、番号を丸で囲む */
+#p-rec .sec-h{align-items:center}
+.step{display:flex;align-items:center;gap:10px;margin:0;font-family:var(--f-head);font-weight:900;font-size:clamp(22px,6vw,26px);line-height:1.2;color:var(--ink)}
+.step-n{display:inline-grid;place-items:center;flex:none;width:1.4em;height:1.4em;border-radius:50%;
+  background:var(--accent);color:var(--accent-ink);font-size:.85em;font-variant-numeric:tabular-nums}
+#p-rec .hint{font-size:13px;font-weight:700}
 .label{font-size:12px;font-weight:700;letter-spacing:.12em;color:var(--muted)}
 .hint{font-size:12px;color:var(--muted)}
 
@@ -156,11 +162,11 @@ tr:last-child td{border-bottom:0}
     <!-- 記録タブ -->
     <section class="panel" id="p-rec">
       <div class="sec">
-        <div class="sec-h"><span class="label">①　車両を選ぶ</span><span class="hint" id="car-count"></span></div>
+        <div class="sec-h"><h2 class="step"><span class="step-n">1</span>車両を選ぶ</h2><span class="hint" id="car-count"></span></div>
         <div class="cars" id="cars"><div class="loading">読み込んでいます…</div></div>
       </div>
       <div class="sec">
-        <div class="sec-h"><span class="label">②　使用者</span><span class="hint" id="people-hint"></span></div>
+        <div class="sec-h"><h2 class="step"><span class="step-n">2</span>使用者</h2><span class="hint" id="people-hint"></span></div>
         <div id="people"><div class="loading">読み込んでいます…</div></div>
       </div>
     </section>
@@ -196,11 +202,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.20-8"></script>
+<script src="config.js?v=2026.10.20-9"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.20-8';
+  const APP_VERSION = '2026.10.20-9';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
