@@ -106,7 +106,7 @@ function doPost(e) {
       case 'state': return json_({ ok: true, state: getState_() });
       case 'logs': return json_({ ok: true, logs: getLogs_(req.month) });
       case 'start': return json_(withLock_(() => start_(req.carId, req.userName)));
-      case 'return': return json_(withLock_(() => return_(req.carId, req.userName)));
+      case 'return': return json_(withLock_(() => return_(req.carId, req.userName, req.code)));
       case 'undo': return json_(withLock_(() => undo_(req.type, req.logId)));
       case 'register': return json_(withLock_(() => register_(req.userName, req.deviceId, req.ua)));
       case 'admin': return json_(checkAdmin_(req.code));
@@ -241,10 +241,16 @@ function start_(carId, userName) {
   return { ok: true, logId: id, at: now.getTime(), state: saveState_(state) };
 }
 
-function return_(carId, userName) {
+// 返却できるのは使い始めた本人だけ。本人以外は管理者コードがあれば代理で返却できる
+function return_(carId, userName, code) {
   const state = computeState_();
   const cur = state.status[carId];
   if (!cur || !cur.inUse) return { ok: false, error: 'not_in_use', state: state };
+  if (cur.userName !== userName) {
+    if (!code) return { ok: false, error: 'not_owner', userName: cur.userName, state: state };
+    const admin = checkAdmin_(code);
+    if (!admin.ok) return admin;
+  }
   const row = findLogRow_(cur.logId);
   if (!row) return { ok: false, error: 'not_in_use', state: state };
 
