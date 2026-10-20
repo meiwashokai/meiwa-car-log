@@ -37,6 +37,12 @@ header.top .wrap{display:flex;align-items:baseline;justify-content:space-between
 .brand{font-family:var(--f-head);font-weight:900;font-size:19px;letter-spacing:.04em}
 .brand small{display:block;font-family:var(--f-body);font-weight:400;font-size:11px;letter-spacing:.12em;color:var(--muted)}
 .today{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.top-r{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.sync{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--accent)}
+.sync::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+@media (prefers-reduced-motion: no-preference){.sync::before{animation:blink 1s ease-in-out infinite}}
+@keyframes blink{50%{opacity:.25}}
+.ver{margin:8px 0 0;font-size:11px;color:var(--muted);text-align:center}
 
 main{padding-bottom:calc(190px + env(safe-area-inset-bottom,0px))}
 main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
@@ -121,7 +127,7 @@ tr:last-child td{border-bottom:0}
 <header class="top">
   <div class="wrap">
     <div class="brand">社有車ログ<small>MEIWA SHOKAI</small></div>
-    <div class="today num" id="today"></div>
+    <div class="top-r"><div class="today num" id="today"></div><div class="sync" id="sync" hidden>保存中…</div></div>
   </div>
 </header>
 
@@ -157,6 +163,7 @@ tr:last-child td{border-bottom:0}
         <div id="logs" class="sec"></div>
       </div>
     </section>
+    <p class="ver num" id="ver"></p>
   </div>
 </main>
 
@@ -172,9 +179,11 @@ tr:last-child td{border-bottom:0}
 
 <div class="toast" id="toast" hidden><span id="toast-msg"></span><button id="toast-undo" hidden>取り消す</button></div>
 
-<script src="config.js"></script>
+<script src="config.js?v=2026.10.20-3"></script>
 <script>
 (() => {
+  // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
+  const APP_VERSION = '2026.10.20-3';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -209,7 +218,7 @@ tr:last-child td{border-bottom:0}
     me: store.get('meiwa-car-me'), carSel: null,
     tab: store.get('meiwa-car-tab') === 'log' ? 'log' : 'rec',
     month: fYM.format(Date.now()),
-    busy: false, undo: null, fatal: false, skew: 0
+    pending: 0, undo: null, fatal: false, skew: 0
   };
   // 端末の時計ずれを補正した現在時刻
   const now = () => Date.now() + S.skew;
@@ -219,7 +228,11 @@ tr:last-child td{border-bottom:0}
     let res;
     try {
       // text/plain で送ると Apps Script 側で余計な事前確認が起きない
-      res = await fetch(CFG.apiUrl, { method: 'POST', body: JSON.stringify({ action, key: S.key, ...payload }) });
+      // 記録系は keepalive で、送信中にブラウザを閉じても最後まで届ける
+      res = await fetch(CFG.apiUrl, {
+        method: 'POST', keepalive: action !== 'state' && action !== 'logs',
+        body: JSON.stringify({ action, key: S.key, ...payload })
+      });
     } catch { throw { error: 'network' }; }
     if (!res.ok) throw { error: 'network' };
     const j = await res.json().catch(() => ({ ok: false, error: 'network' }));
@@ -237,10 +250,29 @@ tr:last-child td{border-bottom:0}
     renderPeople(); renderCars(); renderAction(); renderLogFilters();
   }
 
+  // 保存待ちがある間は、画面の先行表示を上書きしないよう読み込まない
   async function refreshState() {
-    if (S.busy || S.fatal) return;
-    try { applyState((await api('state')).state); hideConn(); }
-    catch (e) { handleErr(e, true); }
+    if (S.pending || S.fatal) return;
+    try {
+      const st = (await api('state')).state;
+      if (!S.pending) { applyState(st); hideConn(); }
+    } catch (e) { handleErr(e, true); }
+  }
+
+  // ===== 保存の順番待ち =====
+  // 押した操作は画面に先に反映し、保存は裏で1件ずつ順番に送る
+  let queue = Promise.resolve();
+  function enqueue(task) {
+    S.pending++; renderSync();
+    const p = queue.then(task);
+    queue = p.catch(() => {});
+    return p.finally(() => { S.pending--; renderSync(); });
+  }
+  function renderSync() { $('sync').hidden = !S.pending; }
+  // 最後の保存が終わったときだけ、サーバーの正しい状態で画面を合わせる
+  function applyIfLast(st) { if (S.pending === 1) applyState(st); }
+  async function resync() {
+    try { applyState((await api('state')).state); } catch {}
   }
 
   async function refreshLogs() {
@@ -307,7 +339,6 @@ tr:last-child td{border-bottom:0}
     else if (!car) sub = '車両を選んでください';
     else if (st?.inUse) { sub = `${car.name} · ${st.userName}さんの使用を返却`; ok = true; }
     else { sub = `${person.name}さん · ${car.name}`; ok = true; }
-    if (S.busy) { sub = '記録しています…（数秒かかります）'; ok = false; }
     btn.innerHTML = `<b>${esc(title)}</b><span>${esc(sub)}</span>`;
     btn.disabled = !ok;
   }
@@ -400,55 +431,65 @@ tr:last-child td{border-bottom:0}
     if (code === 'unknown_user' || code === 'unknown_car') { toast('名簿が更新されました。選び直してください'); refreshState(); return; }
     if (code === 'busy') { toast('混み合っています。もう一度押してください'); return; }
     if (quiet) { showConn('通信できません。電波の良い場所で開き直すと最新の状態になります。'); return; }
-    toast('通信できず記録できませんでした。もう一度押してください');
+    toast('通信できず保存できませんでした。画面を最新の状態に戻したので、もう一度押してください');
   }
 
   const findPerson = () => S.people.find(p => p.id === S.me);
   const findCar = () => S.cars.find(c => c.id === S.carSel);
 
   // ===== 使用開始・返却 =====
-  async function onAct() {
+  // 押した瞬間に画面を切り替えて完了を知らせ、保存は裏で行う
+  function onAct() {
     const car = findCar(), person = findPerson();
-    if (!car || !person || S.busy) return;
+    if (!car || !person) return;
     const prev = S.status[car.id];
     const inUse = !!prev?.inUse;
-    // 押した瞬間に画面を切り替え、記録は裏で行う（失敗したら元に戻す）
     const t = now();
     S.status = { ...S.status, [car.id]: inUse
       ? { inUse: false, lastReturnMs: t, lastUserName: prev.userName }
       : { inUse: true, userName: person.name, sinceMs: t, logId: null } };
-    S.busy = true;
     renderCars(); renderAction();
-    toast(`${car.name} の${inUse ? '返却' : '使用開始'}を記録しています…`);
-    try {
-      const j = await api(inUse ? 'return' : 'start', { carId: car.id, userName: person.name });
-      S.undo = { type: inUse ? 'return' : 'start', logId: j.logId };
-      S.busy = false;
-      applyState(j.state);
-      toast(inUse
-        ? `${hm(j.at)}　${car.name} の返却を記録しました（${dur(j.minutes)}）`
-        : `${hm(j.at)}　${car.name} の使用開始を記録しました`, true);
-      if (S.logsLoaded) refreshLogs();
-    } catch (e) {
-      S.status = { ...S.status, [car.id]: prev };
-      renderCars();
-      handleErr(e);
-    }
-    finally { S.busy = false; renderAction(); }
+    // 取り消し用の控え。logId は保存が終わった時点で入る
+    const op = { type: inUse ? 'return' : 'start', carId: car.id, prev, logId: null, failed: false };
+    S.undo = op;
+    toast(inUse
+      ? `${hm(t)}　${car.name} を返却しました（${dur(mins(prev.sinceMs, t))}）`
+      : `${hm(t)}　${car.name} の使用を開始しました`, true);
+
+    enqueue(async () => {
+      try {
+        const j = await api(op.type, { carId: car.id, userName: person.name });
+        op.logId = j.logId;
+        applyIfLast(j.state);
+        if (S.logsLoaded && S.pending === 1) refreshLogs();
+      } catch (e) {
+        op.failed = true;
+        if (S.undo === op) { S.undo = null; $('toast-undo').hidden = true; }
+        handleErr(e);
+        if (!e?.state) await resync();
+      }
+    });
   }
 
-  async function onUndo() {
-    const u = S.undo; if (!u || S.busy) return;
+  function onUndo() {
+    const op = S.undo; if (!op) return;
     S.undo = null; $('toast').hidden = true;
-    S.busy = true; renderAction();
-    try {
-      const j = await api('undo', u);
-      S.busy = false;
-      applyState(j.state);
-      toast('取り消しました');
-      if (S.logsLoaded) refreshLogs();
-    } catch (e) { handleErr(e); }
-    finally { S.busy = false; renderAction(); }
+    // 画面はすぐ元に戻し、保存済みの記録は裏で取り消す
+    S.status = { ...S.status, [op.carId]: op.prev };
+    renderCars(); renderAction();
+    toast('取り消しました');
+
+    enqueue(async () => {
+      if (op.failed || !op.logId) return; // 記録自体が保存されていなければ何もしない
+      try {
+        const j = await api('undo', { type: op.type, logId: op.logId });
+        applyIfLast(j.state);
+        if (S.logsLoaded && S.pending === 1) refreshLogs();
+      } catch (e) {
+        handleErr(e);
+        if (!e?.state) await resync();
+      }
+    });
   }
 
   // ===== CSV保存 =====
@@ -491,10 +532,28 @@ tr:last-child td{border-bottom:0}
   });
   // アプリに戻ってきたら最新の状態を取り直す
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { refreshState(); if (S.tab === 'log') refreshLogs(); }
+    if (document.visibilityState === 'visible') { checkUpdate(); refreshState(); if (S.tab === 'log') refreshLogs(); }
   });
 
+  // ===== 新しい版の自動読み込み =====
+  // version.json の版がこの画面と違えば読み込み直す。保存待ちの間は待つ
+  // 公開直後は配信側に古い版が残ることがあるので、同じ版への読み込み直しは1回だけにする
+  async function checkUpdate() {
+    if (S.pending) return;
+    try {
+      const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+      const latest = (await res.json()).version;
+      if (!latest || latest === APP_VERSION) return;
+      let tried = null; try { tried = sessionStorage.getItem('meiwa-car-reloaded'); } catch {}
+      if (tried === latest) return;
+      try { sessionStorage.setItem('meiwa-car-reloaded', latest); } catch {}
+      location.reload();
+    } catch {}
+  }
+
   // ===== 起動 =====
+  $('ver').textContent = 'ver. ' + APP_VERSION;
+  checkUpdate();
   $('f-month').value = S.month;
   renderToday(); renderTabs();
   setInterval(() => { renderToday(); if (S.tab === 'rec') renderCars(); }, 30000);

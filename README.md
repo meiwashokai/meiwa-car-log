@@ -24,3 +24,4 @@ Mattermost「車両管理」チャンネルにピン止めしたリンクから�
 - 合言葉が外部に漏れたら：Apps Script エディタで `resetPasskey` を実行 → 新しいリンクを Mattermost に貼り直す。
 - `gas/Code.gs` を変更したら：Apps Script に貼り直し →「デプロイ → デプロイを管理 → 編集 → 新バージョン」で更新（URLは変わらない）。
 - 変更は feature ブランチで作業し、main へはプルリクエスト経由でマージする。
+- 画面（index.html）を変えたら、`index.html` の `APP_VERSION`・`config.js?v=`・`version.json` の版番号を同じ値に上げる。社員のスマホが開いたときに自動で新しい版へ切り替わる（画面下の `ver.` で確認できる）。
