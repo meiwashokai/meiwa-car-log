@@ -110,14 +110,25 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 /* 下部固定: アクション + タブ */
 .dock{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
 .dock .wrap{display:flex;flex-direction:column;gap:10px;padding-block:10px 0}
-/* 返却時の「ガソリン少なめ」「オイルランプ点灯」チェック */
-.fuel{display:flex;align-items:center;gap:12px;min-height:52px;padding:8px 14px;border:1.5px solid var(--line);border-radius:12px;
-  background:var(--surface);font-size:17px;font-weight:700;cursor:pointer}
-.fuel input{width:26px;height:26px;margin:0;flex:none;accent-color:var(--busy-strong)}
-.fuel small{font-size:13px;font-weight:400;color:var(--muted)}
-.fuel:has(input:checked){border-color:var(--busy-strong);background:var(--busy-bg);color:var(--busy)}
-.oil input{accent-color:var(--danger)}
-.oil:has(input:checked){border-color:var(--danger);background:var(--danger-bg);color:var(--danger)}
+/* 返却前の確認画面「共有することはありますか？」（下からせり上がる） */
+.sheet-bg{position:fixed;inset:0;z-index:20;background:rgba(21,32,48,.45);display:flex;align-items:flex-end;justify-content:center}
+.sheet{width:100%;max-width:560px;background:var(--surface);border-radius:18px 18px 0 0;
+  padding:20px 16px calc(14px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:10px;
+  animation:sheet-up .18s ease-out}
+@keyframes sheet-up{from{transform:translateY(40px)}}
+.sheet h2{margin:0;font-family:var(--f-head);font-size:22px;font-weight:900}
+.sheet-sub{margin:-4px 0 4px;font-size:14px;color:var(--muted)}
+.rep{display:flex;align-items:center;gap:12px;min-height:60px;padding:8px 14px;border:2px solid var(--line);border-radius:12px;
+  background:var(--surface);color:var(--ink);font-size:18px;font-weight:700;text-align:left}
+.rep i{font-style:normal;width:28px;height:28px;flex:none;border:2px solid var(--line);border-radius:8px;
+  display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff}
+.rep small{display:block;font-size:13px;font-weight:400;color:var(--muted)}
+.rep[aria-pressed="true"]{border-color:var(--busy-strong);background:var(--busy-bg);color:var(--busy)}
+.rep[aria-pressed="true"] i{background:var(--busy-strong);border-color:var(--busy-strong)}
+.rep.oil[aria-pressed="true"]{border-color:var(--danger);background:var(--danger-bg);color:var(--danger)}
+.rep.oil[aria-pressed="true"] i{background:var(--danger);border-color:var(--danger)}
+.sheet .act{margin-top:6px}
+.sheet-cancel{background:none;border:0;padding:12px;font-size:16px;font-weight:700;color:var(--muted)}
 .act{width:100%;min-height:62px;border:0;border-radius:14px;background:var(--accent);color:var(--accent-ink);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 12px}
 .act b{font-family:var(--f-head);font-size:20px;letter-spacing:.08em}
@@ -209,11 +220,21 @@ tr:last-child td{border-bottom:0}
   </div>
 </main>
 
+<!-- 返却前の確認画面 -->
+<div class="sheet-bg" id="ret" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ret-h">
+    <h2 id="ret-h">共有することはありますか？</h2>
+    <p class="sheet-sub" id="ret-sub"></p>
+    <button class="rep" data-rep="fuel" aria-pressed="false"><i>✓</i><span>ガソリン少なめ<small>給油が必要</small></span></button>
+    <button class="rep oil" data-rep="oil" aria-pressed="false"><i>✓</i><span>オイルランプ点灯<small>点検が必要</small></span></button>
+    <button class="act" id="ret-go"><b>とくになし・返却する</b></button>
+    <button class="sheet-cancel" id="ret-cancel">やめる</button>
+  </div>
+</div>
+
 <div class="dock" id="dock">
   <div class="wrap">
     <div class="toast" id="toast" role="status" hidden><span id="toast-msg"></span><button id="toast-undo" hidden>取り消す</button></div>
-    <label class="fuel" id="fuel" hidden><input type="checkbox" id="fuel-cb"><span>ガソリン少なめ<small>（給油が必要）</small></span></label>
-    <label class="fuel oil" id="oil" hidden><input type="checkbox" id="oil-cb"><span>オイルランプ点灯<small>（点検が必要）</small></span></label>
     <button class="act" id="act" disabled><b>使用開始</b><span>読み込んでいます…</span></button>
     <nav class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="rec" aria-selected="true">記録する</button>
@@ -222,11 +243,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.27-3"></script>
+<script src="config.js?v=2026.10.27-4"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.27-3';
+  const APP_VERSION = '2026.10.27-4';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -261,6 +282,7 @@ tr:last-child td{border-bottom:0}
     loaded: false, people: [], cars: [], status: {}, logs: [], logsLoaded: false,
     // me = このスマホに登録した本人（変更は管理者コードが必要）、pick = 初回登録前に選んだ名前
     me: store.get('meiwa-car-owner'), pick: null, adminOpen: false, carSel: null,
+    rep: {}, // 返却前の確認画面で選んだ報告（fuel・oil）
     tab: store.get('meiwa-car-tab') === 'log' ? 'log' : 'rec',
     month: fYM.format(Date.now()),
     pending: 0, undo: null, fatal: false, skew: 0
@@ -487,8 +509,6 @@ tr:last-child td{border-bottom:0}
     }
     btn.innerHTML = `<b>${esc(title)}</b><span>${esc(sub)}</span>`;
     btn.disabled = !ok;
-    // 自分の車を返却するときだけ「ガソリン少なめ」「オイルランプ点灯」を出す
-    $('fuel').hidden = $('oil').hidden = !(ok && st?.inUse);
   }
 
   function filteredLogs() {
@@ -595,7 +615,28 @@ tr:last-child td{border-bottom:0}
 
   // ===== 使用開始・返却 =====
   // 押した瞬間に画面を切り替えて完了を知らせ、保存は裏で行う
-  function onAct() {
+  // 返却ボタン：先に「共有することはありますか？」を出す。報告済みの項目は最初から選んでおく
+  function openReturnSheet() {
+    const car = findCar(); if (!car) return;
+    S.rep = { fuel: !!car.fuel, oil: !!car.oil };
+    $('ret-sub').textContent = `${car.name} を返却します`;
+    renderReturnSheet();
+    $('ret').hidden = false;
+    $('ret-go').focus();
+  }
+  function renderReturnSheet() {
+    document.querySelectorAll('[data-rep]').forEach(b => b.setAttribute('aria-pressed', String(!!S.rep[b.dataset.rep])));
+    $('ret-go').innerHTML = `<b>${S.rep.fuel || S.rep.oil ? '報告して返却する' : 'とくになし・返却する'}</b>`;
+  }
+  const closeReturnSheet = () => { $('ret').hidden = true; };
+
+  function onActClick() {
+    const car = findCar();
+    if (car && S.status[car.id]?.inUse && findPerson() && !othersCar()) openReturnSheet();
+    else onAct();
+  }
+
+  function onAct(report) {
     const car = findCar();
     if (!car || othersCar()) return;
     const who = findPerson() || S.people.find(p => p.id === S.pick);
@@ -612,8 +653,8 @@ tr:last-child td{border-bottom:0}
     const inUse = !!prev?.inUse;
     const t = now();
     // 返却時の「ガソリン少なめ」「オイルランプ点灯」。カードの表示も先に書き換えておく
-    const fuelLow = inUse ? $('fuel-cb').checked : undefined;
-    const oilLamp = inUse ? $('oil-cb').checked : undefined;
+    const fuelLow = inUse ? !!report?.fuel : undefined;
+    const oilLamp = inUse ? !!report?.oil : undefined;
     const prevFuel = car.fuel || '', prevOil = car.oil || '';
     const memo = `${fMDshort(t)} ${person.name}さんが報告`;
     if (inUse) setCarMemo(car.id, { fuel: fuelLow ? memo : '', oil: oilLamp ? memo : '' });
@@ -737,14 +778,12 @@ tr:last-child td{border-bottom:0}
   document.addEventListener('click', e => {
     const t = e.target.closest('button'); if (!t) return;
     // 名前を選べるのは未登録のスマホだけ
+    if (t.dataset.rep) { S.rep[t.dataset.rep] = !S.rep[t.dataset.rep]; renderReturnSheet(); return; }
     if (t.dataset.person) { if (!findPerson()) { S.pick = t.dataset.person; renderPeople(); renderAction(); } return; }
     if (t.dataset.adminOpen) { S.adminOpen = t.dataset.adminOpen; renderPeople(); $('admin-code')?.focus(); return; }
     if (t.dataset.adminClose) { S.adminOpen = false; renderPeople(); return; }
     if (t.dataset.car) {
       S.carSel = S.carSel === t.dataset.car ? null : t.dataset.car;
-      // 報告がある車は、最初からチェックを入れておく（給油・点検したら外して返却）
-      $('fuel-cb').checked = !!findCar()?.fuel;
-      $('oil-cb').checked = !!findCar()?.oil;
       if (S.adminOpen === 'proxy') S.adminOpen = false;
       renderCars(); renderPeople(); renderAction(); return;
     }
@@ -754,7 +793,12 @@ tr:last-child td{border-bottom:0}
     }
   });
   document.addEventListener('submit', e => { if (e.target.id === 'admin-form') onAdminSubmit(e); });
-  $('act').addEventListener('click', onAct);
+  $('act').addEventListener('click', onActClick);
+  $('ret-go').addEventListener('click', () => { closeReturnSheet(); onAct(S.rep); });
+  $('ret-cancel').addEventListener('click', closeReturnSheet);
+  // 暗い部分をタップ・戻るキーで閉じる
+  $('ret').addEventListener('click', e => { if (e.target.id === 'ret') closeReturnSheet(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('ret').hidden) closeReturnSheet(); });
   $('toast-undo').addEventListener('click', onUndo);
   // お知らせの文字をタップするとすぐ消える
   $('toast-msg').addEventListener('click', hideToast);
