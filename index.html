@@ -66,6 +66,15 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 #p-rec .hint{font-size:13px;font-weight:700}
 .label{font-size:12px;font-weight:700;letter-spacing:.12em;color:var(--muted)}
 .hint{font-size:12px;color:var(--muted)}
+/* ホーム画面に追加の案内 */
+.a2hs{background:var(--surface);border:2px solid var(--accent);border-radius:14px;padding:14px;margin-bottom:18px}
+.a2hs-h{display:flex;gap:12px;align-items:center;font-weight:700;font-size:16px;line-height:1.45}
+.a2hs-h img{width:44px;height:44px;border-radius:11px;flex:none}
+.a2hs ol{margin:10px 0 0;padding-left:1.4em;font-size:15px;line-height:1.9}
+.a2hs .share{display:inline-grid;place-items:center;width:24px;height:24px;border:1.5px solid var(--accent);border-radius:6px;vertical-align:-6px;color:var(--accent)}
+.a2hs-btns{display:flex;gap:8px;margin-top:12px}
+.a2hs-btns button{flex:1;min-height:46px;border-radius:10px;font-size:15px;font-weight:700;border:1.5px solid var(--line);background:var(--surface);color:var(--muted)}
+.a2hs-btns .primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 
 /* 使用者チップ */
 .chips{display:flex;flex-wrap:wrap;gap:8px}
@@ -198,6 +207,24 @@ tr:last-child td{border-bottom:0}
 
     <!-- 記録タブ -->
     <section class="panel" id="p-rec">
+      <div class="a2hs" id="a2hs" hidden>
+        <div class="a2hs-h"><img src="icon-180.png?v=2" alt=""><span>ホーム画面に追加すると、次からアイコン1つで開けます</span></div>
+        <ol id="a2hs-ios" hidden>
+          <li id="a2hs-ios-1">画面下の <span class="share" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg></span> 共有ボタンを押す</li>
+          <li>「ホーム画面に追加」を押す<small class="hint">（見つからないときは下にスクロール）</small></li>
+          <li>右上の「追加」を押す</li>
+        </ol>
+        <ol id="a2hs-android-steps" hidden>
+          <li>右上の <b>︙</b> を押す</li>
+          <li>「ホーム画面に追加」を押す</li>
+          <li>「追加」（または「インストール」）を押す</li>
+        </ol>
+        <div class="a2hs-btns">
+          <button class="primary" id="a2hs-install" hidden>ホーム画面に追加</button>
+          <button class="primary" id="a2hs-done">追加した</button>
+          <button id="a2hs-later">今はしない</button>
+        </div>
+      </div>
       <div class="sec">
         <div class="sec-h"><h2 class="step"><span class="step-n">1</span>車両を選ぶ</h2><span class="hint" id="car-count"></span></div>
         <div class="cars" id="cars"><div class="loading">読み込んでいます…</div></div>
@@ -251,11 +278,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.27-7"></script>
+<script src="config.js?v=2026.10.27-8"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.27-7';
+  const APP_VERSION = '2026.10.27-8';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -612,6 +639,47 @@ tr:last-child td{border-bottom:0}
   function hideConn() { if (!S.fatal) $('conn').hidden = true; }
 
   // 開けない状態（設定漏れ・合言葉なし）は画面全体で案内する
+  // ===== ホーム画面に追加の案内 =====
+  // ブラウザで開いたときだけ出す。「追加した」で以後出さない。「今はしない」は1週間後にもう一度だけ出す
+  const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const IOS_CHROME = IS_IOS && /CriOS/.test(navigator.userAgent);
+  const A2HS_KEY = 'meiwa-car-a2hs', WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  let installEvt = null;
+  // Android 用：アプリとして追加できるよう設定ファイルを読み込む
+  // （iPhone は設定ファイルがあると合言葉付きのアドレスで追加されなくなるため読み込まない）
+  if (!IS_IOS) {
+    const l = document.createElement('link'); l.rel = 'manifest'; l.href = 'manifest.webmanifest';
+    document.head.appendChild(l);
+  }
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderA2hs(); });
+  window.addEventListener('appinstalled', () => a2hsSet('done'));
+  function a2hsGet() { try { return JSON.parse(store.get(A2HS_KEY) || 'null'); } catch { return null; } }
+  function a2hsSet(state) {
+    const p = a2hsGet();
+    store.set(A2HS_KEY, JSON.stringify({ state, at: Date.now(), n: (p?.n || 0) + (state === 'later' ? 1 : 0) }));
+    renderA2hs();
+  }
+  function renderA2hs() {
+    const p = a2hsGet();
+    const show = !STANDALONE && (!p || (p.state === 'later' && p.n < 2 && Date.now() - p.at >= WEEK_MS));
+    $('a2hs').hidden = !show;
+    if (!show) return;
+    $('a2hs-ios').hidden = !IS_IOS;
+    // iPhone の Chrome は共有ボタンが上（アドレスバーの右）にある
+    if (IOS_CHROME) $('a2hs-ios-1').firstChild.textContent = 'アドレスバー右の ';
+    // Android は Chrome がボタン1つで追加できるときはボタン、できないときは手順を出す
+    $('a2hs-install').hidden = IS_IOS || !installEvt;
+    $('a2hs-android-steps').hidden = IS_IOS || !!installEvt;
+    $('a2hs-done').hidden = !IS_IOS && !!installEvt;
+  }
+  async function onA2hsInstall() {
+    if (!installEvt) return;
+    installEvt.prompt();
+    const r = await installEvt.userChoice.catch(() => null);
+    installEvt = null;
+    if (r?.outcome === 'accepted') a2hsSet('done'); else renderA2hs();
+  }
+
   function fatal(html) {
     S.fatal = true;
     showConn(html);
@@ -826,6 +894,9 @@ tr:last-child td{border-bottom:0}
   });
   document.addEventListener('submit', e => { if (e.target.id === 'admin-form') onAdminSubmit(e); });
   $('act').addEventListener('click', onActClick);
+  $('a2hs-install').addEventListener('click', onA2hsInstall);
+  $('a2hs-done').addEventListener('click', () => a2hsSet('done'));
+  $('a2hs-later').addEventListener('click', () => a2hsSet('later'));
   $('ret-go').addEventListener('click', () => { closeReturnSheet(); onAct(S.rep); });
   $('ret-cancel').addEventListener('click', closeReturnSheet);
   // 暗い部分をタップ・戻るキーで閉じる
@@ -872,7 +943,7 @@ tr:last-child td{border-bottom:0}
   $('ver').textContent = 'ver. ' + APP_VERSION;
   checkUpdate();
   $('f-month').value = S.month;
-  renderToday(); renderTabs();
+  renderToday(); renderTabs(); renderA2hs();
   setInterval(() => { renderToday(); if (S.tab === 'rec') renderCars(); }, 30000);
 
   if (!CFG.apiUrl) { fatal('<b>接続先が設定されていません。</b><br>管理者が config.js に Apps Script の URL を設定してください。'); return; }
