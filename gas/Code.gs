@@ -7,12 +7,15 @@
  * シート構成
  *   使用者 … A列「名前」に社員名を1行ずつ
  *   車両   … A列「車種」、B列「ナンバー」（任意）。車種名は重複させない（例：プロボックス①）
+ *            C列「点検予定日」、D列「車検予定」（年と月）、E列「お知らせ」（例：給油必要）は任意。アプリの車両カードに表示される
  *   ログ   … アプリが自動で書き込む。手で触らない
  *   端末   … スマホを本人専用に登録した記録。アプリが自動で書き込む
  */
 
 const SHEET = { people: '使用者', cars: '車両', logs: 'ログ', devices: '端末' };
 const DEVICE_HEADERS = ['登録日時', '名前', '端末ID', '端末の種類'];
+// 車両シートの列。C〜E列はカードに表示する予定・お知らせ（空欄なら表示しない）
+const CAR_HEADERS = ['車種', 'ナンバー', '点検予定日', '車検予定', 'お知らせ'];
 const LOG_HEADERS = ['ID', '日付', '車両', 'ナンバー', '使用者', '使用開始', '返却', '使用時間(分)', '返却者', '開始ms', '返却ms'];
 // ログシートの列番号（1始まり）
 const COL = { id: 1, date: 2, car: 3, plate: 4, user: 5, start: 6, end: 7, minutes: 8, returnedBy: 9, startMs: 10, endMs: 11 };
@@ -26,7 +29,10 @@ function setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.setSpreadsheetTimeZone('Asia/Tokyo');
   ensureSheet_(ss, SHEET.people, ['名前']);
-  ensureSheet_(ss, SHEET.cars, ['車種', 'ナンバー']);
+  const cars = ensureSheet_(ss, SHEET.cars, CAR_HEADERS);
+  // 既存の車両シートに、後から増えた列（点検予定日・車検予定・お知らせ）の見出しを足す
+  const head = cars.getRange(1, 1, 1, CAR_HEADERS.length).getValues()[0];
+  CAR_HEADERS.forEach((h, i) => { if (!head[i]) cars.getRange(1, i + 1).setValue(h).setFontWeight('bold'); });
   const logs = ensureSheet_(ss, SHEET.logs, LOG_HEADERS);
   // 人が見なくてよい列は隠す
   logs.hideColumns(COL.id);
@@ -151,10 +157,33 @@ function readCars_() {
   const sh = sheet_(SHEET.cars);
   if (sh.getLastRow() < 2) return [];
   const seen = {};
-  return sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues()
-    .map(r => ({ id: String(r[0]).trim(), name: String(r[0]).trim(), plate: String(r[1]).trim() }))
+  return sh.getRange(2, 1, sh.getLastRow() - 1, CAR_HEADERS.length).getValues()
+    .map(r => ({
+      id: String(r[0]).trim(), name: String(r[0]).trim(), plate: String(r[1]).trim(),
+      inspect: toYMD_(r[2]), shaken: toYM_(r[3]), note: String(r[4] || '').trim()
+    }))
     .filter(c => c.id && !seen[c.id] && (seen[c.id] = true));
 }
+
+// 点検予定日を "2026-11-05" の形にそろえる（日付セル・"2026/11/5"・"11/5" に対応。年がなければ今年）
+function toYMD_(v) {
+  if (v instanceof Date && !isNaN(v)) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
+  const s = String(v || '');
+  let m = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (m) return m[1] + '-' + pad2_(m[2]) + '-' + pad2_(m[3]);
+  m = s.match(/^\s*(\d{1,2})\D+(\d{1,2})/);
+  if (m) return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy') + '-' + pad2_(m[1]) + '-' + pad2_(m[2]);
+  return '';
+}
+
+// 車検予定を "2027-03" の形にそろえる（日付セル・"2027/3"・"2027年3月" に対応）
+function toYM_(v) {
+  if (v instanceof Date && !isNaN(v)) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM');
+  const m = String(v || '').match(/(\d{4})\D+(\d{1,2})/);
+  return m ? m[1] + '-' + pad2_(m[2]) : '';
+}
+
+function pad2_(n) { return ('0' + Number(n)).slice(-2); }
 
 function readLogs_() {
   const sh = sheet_(SHEET.logs);

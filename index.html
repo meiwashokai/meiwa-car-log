@@ -17,6 +17,7 @@
   --accent:#1f4fa3; --accent-ink:#ffffff; --accent-soft:#e3ebf8;
   --free:#1d7347; --free-bg:#e5f3ea; --busy:#a85a06; --busy-bg:#fdf0dd; --busy-strong:#c66a08;
   --plate-bg:#fbfbf6; --plate-fg:#1b5a37; --shadow:0 1px 2px rgba(20,32,48,.06);
+  --danger:#b42318; --danger-bg:#fdeceb; --note-bg:#eef1f5;
   --f-body:"BIZ UDPGothic","Hiragino Sans","Yu Gothic UI","Meiryo",system-ui,sans-serif;
   --f-head:"Zen Kaku Gothic New","BIZ UDPGothic","Hiragino Sans","Yu Gothic UI",sans-serif;
   /* スマホがダークモードでも常に明るい画面で表示する */
@@ -94,6 +95,15 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 .pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
 .pill.free{background:var(--free-bg);color:var(--free)}
 .pill.busy{background:var(--busy-bg);color:var(--busy)}
+/* 車両カードの予定・お知らせ（点検・車検・お知らせ）。近い予定はオレンジ、期限切れは赤 */
+.car-notes{grid-column:1/-1;display:flex;flex-direction:column;gap:6px}
+.note{display:flex;align-items:baseline;gap:10px;border-radius:8px;padding:7px 10px;background:var(--note-bg);
+  font-size:15px;font-weight:700;line-height:1.4;color:var(--ink);overflow-wrap:anywhere}
+.note b{flex:none;font-size:12px;letter-spacing:.08em;color:var(--muted)}
+.note.warn{background:var(--busy-bg);color:var(--busy)}
+.note.warn b{color:var(--busy)}
+.note.danger{background:var(--danger-bg);color:var(--danger)}
+.note.danger b{color:var(--danger)}
 .busy-by{color:var(--ink);font-weight:700}
 .num{font-variant-numeric:tabular-nums}
 
@@ -202,11 +212,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.20-9"></script>
+<script src="config.js?v=2026.10.27-1"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.20-9';
+  const APP_VERSION = '2026.10.27-1';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -216,6 +226,7 @@ tr:last-child td{border-bottom:0}
   const fMD = new Intl.DateTimeFormat('ja-JP', { timeZone: TZ, month: 'numeric', day: 'numeric', weekday: 'short' });
   const fFull = new Intl.DateTimeFormat('ja-JP', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   const fYM = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit' });
+  const fYMD = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
   const hm = ms => fHM.format(ms);
   const dur = min => min < 60 ? `${min}分` : `${Math.floor(min / 60)}時間${String(min % 60).padStart(2, '0')}分`;
   const mins = (a, b) => Math.max(0, Math.round((b - a) / 60000));
@@ -378,6 +389,33 @@ tr:last-child td{border-bottom:0}
     </div>`);
   }
 
+  // 車両シートの点検予定日・車検予定・お知らせを、カードに出す行に変える
+  function carNotes(c) {
+    const today = fYMD.format(now()).split('-').map(Number);
+    const dayNo = (y, m, d) => Date.UTC(y, m - 1, d) / 86400000;
+    const items = [];
+    if (c.inspect) {
+      const [y, m, d] = c.inspect.split('-').map(Number);
+      const left = dayNo(y, m, d) - dayNo(today[0], today[1], today[2]);
+      // 点検日が過ぎたら表示しない（次の予定日に書き換えてもらう）
+      if (left >= 0) {
+        const when = left === 0 ? '今日' : left === 1 ? '明日' : fMD.format(Date.UTC(y, m - 1, d, 3));
+        items.push({ cls: left <= 7 ? 'warn' : '', label: '点検', text: `${when} 点検予定` });
+      }
+    }
+    if (c.shaken) {
+      const [y, m] = c.shaken.split('-').map(Number);
+      const left = (y * 12 + m) - (today[0] * 12 + today[1]);
+      // 車検月を過ぎたら赤で知らせる（車検切れの車は運転できない）
+      if (left < 0) items.push({ cls: 'danger', label: '車検', text: `車検月（${y}年${m}月）を過ぎています` });
+      else items.push({ cls: left <= 1 ? 'warn' : '', label: '車検', text: `${y}年${m}月 車検予定` });
+    }
+    if (c.note) items.push({ cls: 'warn', label: 'お知らせ', text: c.note });
+    if (!items.length) return '';
+    return `<span class="car-notes">${items.map(n =>
+      `<span class="note ${n.cls}"><b>${n.label}</b><span>${esc(n.text)}</span></span>`).join('')}</span>`;
+  }
+
   function renderCars() {
     const el = $('cars');
     if (!S.loaded) return;
@@ -396,7 +434,7 @@ tr:last-child td{border-bottom:0}
         : (st?.lastReturnMs ? `<span>最終返却 <span class="num">${fMD.format(st.lastReturnMs)} ${hm(st.lastReturnMs)}</span></span>` : '');
       return `<button class="car" data-car="${esc(c.id)}" aria-pressed="${c.id === S.carSel}">
         <span class="car-name">${esc(c.name)}</span>${pill}
-        <span class="car-meta">${c.plate ? `<span class="plate">${esc(c.plate)}</span>` : ''}${meta}</span>
+        <span class="car-meta">${c.plate ? `<span class="plate">${esc(c.plate)}</span>` : ''}${meta}</span>${carNotes(c)}
       </button>`;
     }).join('');
   }
