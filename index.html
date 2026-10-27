@@ -6,6 +6,13 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f2f4f7">
+<!-- ホーム画面に追加したときの名前・アイコン・全画面表示 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="社有車ログ">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <title>明和商会 社有車ログ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -243,11 +250,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.27-4"></script>
+<script src="config.js?v=2026.10.27-5"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.27-4';
+  const APP_VERSION = '2026.10.27-5';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -270,11 +277,16 @@ tr:last-child td{border-bottom:0}
     set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
   };
 
-  // ピン止めリンクの # 以降を合言葉として保存し、アドレスバーからは消す
+  // ピン止めリンクの # 以降を合言葉として保存する。
+  // アドレスバーにも残しておく（iPhone はホーム画面のアイコンから開くと保存内容が別になるため、
+  // 「ホーム画面に追加」したアイコンに合言葉を引き継がせる）
   if (location.hash.length > 1) {
     store.set('meiwa-car-key', decodeURIComponent(location.hash.slice(1)));
-    history.replaceState(null, '', location.pathname + location.search);
+  } else if (store.get('meiwa-car-key')) {
+    history.replaceState(null, '', location.pathname + location.search + '#' + encodeURIComponent(store.get('meiwa-car-key')));
   }
+  // ホーム画面のアイコンから開いているか
+  const STANDALONE = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 
   // ===== 状態 =====
   const S = {
@@ -598,7 +610,15 @@ tr:last-child td{border-bottom:0}
 
   function handleErr(e, quiet = false) {
     const code = e?.error;
-    if (code === 'auth') { store.set('meiwa-car-key', null); fatal(`<b>このリンクでは記録を開けません。</b><br>${PIN_MSG}`); return; }
+    if (code === 'auth') {
+      // 合言葉が変わった：保存分とアドレスバーの分を消す
+      store.set('meiwa-car-key', null);
+      history.replaceState(null, '', location.pathname + location.search);
+      fatal(STANDALONE
+        ? '<b>合言葉が変わりました。</b><br>このアイコンを長押しして削除し、Mattermost の新しいピン止めリンクを開いてから、もう一度「ホーム画面に追加」してください。'
+        : `<b>このリンクでは記録を開けません。</b><br>${PIN_MSG}`);
+      return;
+    }
     if (code === 'in_use') { toast(`${e.userName}さんがすでに使用中です`); applyState(e.state); return; }
     if (code === 'not_in_use') { toast('この車両はすでに返却されています'); applyState(e.state); return; }
     if (code === 'already_using') { toast(`${e.carName} を使用中です。返却してから使用してください`); applyState(e.state); return; }
@@ -844,7 +864,12 @@ tr:last-child td{border-bottom:0}
   setInterval(() => { renderToday(); if (S.tab === 'rec') renderCars(); }, 30000);
 
   if (!CFG.apiUrl) { fatal('<b>接続先が設定されていません。</b><br>管理者が config.js に Apps Script の URL を設定してください。'); return; }
-  if (!S.key) { fatal(`<b>最初の1回はリンクから開いてください。</b><br>${PIN_MSG}`); return; }
+  if (!S.key) {
+    fatal(STANDALONE
+      ? '<b>このアイコンは作り直しが必要です。</b><br>アイコンを長押しして削除し、Mattermost の「車両管理」チャンネルにピン止めされたリンクを開いてから、もう一度「ホーム画面に追加」してください。'
+      : `<b>最初の1回はリンクから開いてください。</b><br>${PIN_MSG}`);
+    return;
+  }
 
   refreshState();
   if (S.tab === 'log') refreshLogs();
