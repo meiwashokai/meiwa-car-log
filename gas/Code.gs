@@ -7,15 +7,20 @@
  * シート構成
  *   使用者 … A列「名前」に社員名を1行ずつ
  *   車両   … A列「車種」、B列「ナンバー」（任意）。車種名は重複させない（例：プロボックス①）
+ *            C列「点検予定日」、D列「車検予定」（年と月）、E列「お知らせ」（例：給油必要）は任意。アプリの車両カードに表示される
  *   ログ   … アプリが自動で書き込む。手で触らない
  *   端末   … スマホを本人専用に登録した記録。アプリが自動で書き込む
  */
 
 const SHEET = { people: '使用者', cars: '車両', logs: 'ログ', devices: '端末' };
 const DEVICE_HEADERS = ['登録日時', '名前', '端末ID', '端末の種類'];
-const LOG_HEADERS = ['ID', '日付', '車両', 'ナンバー', '使用者', '使用開始', '返却', '使用時間(分)', '返却者', '開始ms', '返却ms'];
+// 車両シートの列。C〜E列はカードに表示する予定・お知らせ（空欄なら表示しない）
+// F列「給油メモ」は返却時の「ガソリン少なめ」でアプリが書き込む（管理者が消してもよい）
+const CAR_HEADERS = ['車種', 'ナンバー', '点検予定日', '車検予定', 'お知らせ', '給油メモ'];
+const CAR_FUEL_COL = 6;
+const LOG_HEADERS = ['ID', '日付', '車両', 'ナンバー', '使用者', '使用開始', '返却', '使用時間(分)', '返却者', '開始ms', '返却ms', 'ガソリン少なめ'];
 // ログシートの列番号（1始まり）
-const COL = { id: 1, date: 2, car: 3, plate: 4, user: 5, start: 6, end: 7, minutes: 8, returnedBy: 9, startMs: 10, endMs: 11 };
+const COL = { id: 1, date: 2, car: 3, plate: 4, user: 5, start: 6, end: 7, minutes: 8, returnedBy: 9, startMs: 10, endMs: 11, fuelLow: 12 };
 // 「取り消す」を受け付ける時間
 const UNDO_LIMIT_MS = 10 * 60 * 1000;
 // 状態のキャッシュ秒数（シートを手で編集した内容はこの秒数以内に反映される）
@@ -26,8 +31,10 @@ function setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.setSpreadsheetTimeZone('Asia/Tokyo');
   ensureSheet_(ss, SHEET.people, ['名前']);
-  ensureSheet_(ss, SHEET.cars, ['車種', 'ナンバー']);
+  // 既存のシートに、後から増えた列の見出しを足す（データはそのまま）
+  addMissingHeaders_(ensureSheet_(ss, SHEET.cars, CAR_HEADERS), CAR_HEADERS);
   const logs = ensureSheet_(ss, SHEET.logs, LOG_HEADERS);
+  addMissingHeaders_(logs, LOG_HEADERS);
   // 人が見なくてよい列は隠す
   logs.hideColumns(COL.id);
   logs.hideColumns(COL.startMs, 2);
@@ -77,6 +84,11 @@ function newPasskey_() {
   return Utilities.getUuid().replace(/-/g, '').slice(0, 16);
 }
 
+function addMissingHeaders_(sh, headers) {
+  const head = sh.getRange(1, 1, 1, headers.length).getValues()[0];
+  headers.forEach((h, i) => { if (!head[i]) sh.getRange(1, i + 1).setValue(h).setFontWeight('bold'); });
+}
+
 function ensureSheet_(ss, name, headers) {
   let sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
@@ -106,8 +118,8 @@ function doPost(e) {
       case 'state': return json_({ ok: true, state: getState_() });
       case 'logs': return json_({ ok: true, logs: getLogs_(req.month) });
       case 'start': return json_(withLock_(() => start_(req.carId, req.userName)));
-      case 'return': return json_(withLock_(() => return_(req.carId, req.userName, req.code)));
-      case 'undo': return json_(withLock_(() => undo_(req.type, req.logId)));
+      case 'return': return json_(withLock_(() => return_(req.carId, req.userName, req.code, req.fuelLow)));
+      case 'undo': return json_(withLock_(() => undo_(req.type, req.logId, req.prevFuel)));
       case 'register': return json_(withLock_(() => register_(req.userName, req.deviceId, req.ua)));
       case 'admin': return json_(checkAdmin_(req.code));
       default: return json_({ ok: false, error: 'bad_request' });
@@ -151,10 +163,34 @@ function readCars_() {
   const sh = sheet_(SHEET.cars);
   if (sh.getLastRow() < 2) return [];
   const seen = {};
-  return sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues()
-    .map(r => ({ id: String(r[0]).trim(), name: String(r[0]).trim(), plate: String(r[1]).trim() }))
+  return sh.getRange(2, 1, sh.getLastRow() - 1, CAR_HEADERS.length).getValues()
+    .map(r => ({
+      id: String(r[0]).trim(), name: String(r[0]).trim(), plate: String(r[1]).trim(),
+      inspect: toYMD_(r[2]), shaken: toYM_(r[3]), note: String(r[4] || '').trim(),
+      fuel: String(r[CAR_FUEL_COL - 1] || '').trim()
+    }))
     .filter(c => c.id && !seen[c.id] && (seen[c.id] = true));
 }
+
+// 点検予定日を "2026-11-05" の形にそろえる（日付セル・"2026/11/5"・"11/5" に対応。年がなければ今年）
+function toYMD_(v) {
+  if (v instanceof Date && !isNaN(v)) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
+  const s = String(v || '');
+  let m = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (m) return m[1] + '-' + pad2_(m[2]) + '-' + pad2_(m[3]);
+  m = s.match(/^\s*(\d{1,2})\D+(\d{1,2})/);
+  if (m) return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy') + '-' + pad2_(m[1]) + '-' + pad2_(m[2]);
+  return '';
+}
+
+// 車検予定を "2027-03" の形にそろえる（日付セル・"2027/3"・"2027年3月" に対応）
+function toYM_(v) {
+  if (v instanceof Date && !isNaN(v)) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM');
+  const m = String(v || '').match(/(\d{4})\D+(\d{1,2})/);
+  return m ? m[1] + '-' + pad2_(m[2]) : '';
+}
+
+function pad2_(n) { return ('0' + Number(n)).slice(-2); }
 
 function readLogs_() {
   const sh = sheet_(SHEET.logs);
@@ -169,7 +205,8 @@ function readLogs_() {
     userName: String(r[COL.user - 1]),
     returnedBy: String(r[COL.returnedBy - 1] || ''),
     startMs: Number(r[COL.startMs - 1]) || 0,
-    endMs: Number(r[COL.endMs - 1]) || null
+    endMs: Number(r[COL.endMs - 1]) || null,
+    fuelLow: String(r[COL.fuelLow - 1] || '') === '○'
   })).filter(l => l.id && l.startMs);
 }
 
@@ -245,7 +282,8 @@ function start_(carId, userName) {
 }
 
 // 返却できるのは使い始めた本人だけ。本人以外は管理者コードがあれば代理で返却できる
-function return_(carId, userName, code) {
+// fuelLow: true=ガソリン少なめ／false=問題なし（給油メモを消す）／未指定=給油メモを変えない（代理返却）
+function return_(carId, userName, code, fuelLow) {
   const state = computeState_();
   const cur = state.status[carId];
   if (!cur || !cur.inUse) return { ok: false, error: 'not_in_use', state: state };
@@ -262,8 +300,25 @@ function return_(carId, userName, code) {
   const sh = sheet_(SHEET.logs);
   sh.getRange(row, COL.end, 1, 3).setValues([[now, minutes, userName || '']]);
   sh.getRange(row, COL.endMs).setValue(now.getTime());
+  if (fuelLow === true || fuelLow === false) {
+    sh.getRange(row, COL.fuelLow).setValue(fuelLow ? '○' : '');
+    const memo = fuelLow ? Utilities.formatDate(now, 'Asia/Tokyo', 'M/d') + ' ' + userName + 'さんが報告' : '';
+    setCarFuel_(carId, memo);
+    const car = state.cars.find(c => c.id === carId);
+    if (car) car.fuel = memo;
+  }
   state.status[carId] = { inUse: false, lastReturnMs: now.getTime(), lastUserName: cur.userName };
   return { ok: true, logId: cur.logId, at: now.getTime(), minutes: minutes, state: saveState_(state) };
+}
+
+// 車両シートの給油メモ（F列）を書き換える
+function setCarFuel_(carId, memo) {
+  const sh = sheet_(SHEET.cars);
+  if (sh.getLastRow() < 2) return;
+  const ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]).trim() === carId) { sh.getRange(i + 2, CAR_FUEL_COL).setValue(memo); return; }
+  }
 }
 
 // スマホを本人専用にした記録を残す（わざと他人の名前で登録した場合も後から確認できる）
@@ -288,7 +343,8 @@ function checkAdmin_(code) {
   return { ok: true };
 }
 
-function undo_(type, logId) {
+// prevFuel: 返却を取り消すとき、返却前の給油メモに戻すための値（画面が覚えていたもの）
+function undo_(type, logId, prevFuel) {
   const row = findLogRow_(logId);
   if (!row) return { ok: false, error: 'undo_expired', state: computeState_() };
   const sh = sheet_(SHEET.logs);
@@ -305,7 +361,8 @@ function undo_(type, logId) {
     const st = computeState_().status[String(r[COL.car - 1])];
     if (st && st.inUse) return { ok: false, error: 'in_use', userName: st.userName, state: computeState_() };
     sh.getRange(row, COL.end, 1, 3).clearContent();
-    sh.getRange(row, COL.endMs).clearContent();
+    sh.getRange(row, COL.endMs, 1, 2).clearContent();
+    if (typeof prevFuel === 'string') setCarFuel_(String(r[COL.car - 1]), prevFuel.slice(0, 100));
   } else {
     return { ok: false, error: 'bad_request' };
   }
