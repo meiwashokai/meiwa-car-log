@@ -16,7 +16,8 @@
 <title>明和商会 社有車ログ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Kaku+Gothic+New:wght@700;900&display=swap">
+<!-- フォントは画面の表示を待たせないよう後から読み込む -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Kaku+Gothic+New:wght@700;900&display=swap" media="print" onload="this.media='all'">
 <style>
 /* レイアウト: スマホ1カラム。上=使用者チップ、中=車両カード、下=固定の大ボタンとタブ */
 :root{
@@ -250,11 +251,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.27-6"></script>
+<script src="config.js?v=2026.10.27-7"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.27-6';
+  const APP_VERSION = '2026.10.27-7';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -292,6 +293,7 @@ tr:last-child td{border-bottom:0}
   const S = {
     key: store.get('meiwa-car-key'),
     loaded: false, people: [], cars: [], status: {}, logs: [], logsLoaded: false,
+    fresh: false, // サーバーから最新の状態を受け取ったか（false の間は前回の控えを表示中）
     // me = このスマホに登録した本人（変更は管理者コードが必要）、pick = 初回登録前に選んだ名前
     me: store.get('meiwa-car-owner'), pick: null, adminOpen: false, carSel: null,
     rep: {}, // 返却前の確認画面で選んだ報告（fuel・oil）
@@ -325,8 +327,13 @@ tr:last-child td{border-bottom:0}
     return j;
   }
 
-  function applyState(st) {
+  // fromCache=true は前回の控え（開いた直前の表示用）。サーバーからの状態は控えとして保存しておく
+  function applyState(st, fromCache) {
     if (!st) return;
+    if (!fromCache) {
+      S.fresh = true;
+      store.set('meiwa-car-state', JSON.stringify({ people: st.people, cars: st.cars, status: st.status }));
+    }
     S.people = st.people || []; S.cars = st.cars || []; S.status = st.status || {};
     if (st.now) S.skew = st.now - Date.now();
     // 名簿から消えた人（退職など）の登録は解除し、選び直してもらう
@@ -334,7 +341,7 @@ tr:last-child td{border-bottom:0}
     if (S.pick && !S.people.some(p => p.id === S.pick)) S.pick = null;
     if (S.carSel && !S.cars.some(c => c.id === S.carSel)) S.carSel = null;
     S.loaded = true;
-    renderPeople(); renderCars(); renderAction(); renderLogFilters();
+    renderPeople(); renderCars(); renderAction(); renderLogFilters(); renderSync();
   }
 
   // 保存待ちがある間は、画面の先行表示を上書きしないよう読み込まない
@@ -355,7 +362,10 @@ tr:last-child td{border-bottom:0}
     queue = p.catch(() => {});
     return p.finally(() => { S.pending--; renderSync(); });
   }
-  function renderSync() { $('sync').hidden = !S.pending; }
+  function renderSync() {
+    $('sync').hidden = !S.pending && (S.fresh || !S.loaded);
+    $('sync').textContent = S.pending ? '保存中…' : '更新中…';
+  }
   // 最後の保存が終わったときだけ、サーバーの正しい状態で画面を合わせる
   function applyIfLast(st) { if (S.pending === 1) applyState(st); }
   async function resync() {
@@ -519,6 +529,8 @@ tr:last-child td{border-bottom:0}
       } else if (st?.inUse) sub = `${car.name} · ${st.userName}さんの使用を返却`;
       else sub = `${person.name}さん · ${car.name}`;
     }
+    // 前回の控えを表示している間は押せない（他の人が使い始めているかもしれないため）
+    if (ok && !S.fresh) { ok = false; sub = '最新の状態を確認しています…'; }
     btn.innerHTML = `<b>${esc(title)}</b><span>${esc(sub)}</span>`;
     btn.disabled = !ok;
   }
@@ -612,7 +624,7 @@ tr:last-child td{border-bottom:0}
     const code = e?.error;
     if (code === 'auth') {
       // 合言葉が変わった：保存分とアドレスバーの分を消す
-      store.set('meiwa-car-key', null);
+      store.set('meiwa-car-key', null); store.set('meiwa-car-state', null);
       history.replaceState(null, '', location.pathname + location.search);
       fatal(STANDALONE
         ? '<b>合言葉が変わりました。</b><br>このアイコンを長押しして削除し、Mattermost の新しいピン止めリンクを開いてから、もう一度「ホーム画面に追加」してください。'
@@ -871,6 +883,8 @@ tr:last-child td{border-bottom:0}
     return;
   }
 
+  // 前回の状態をすぐ表示し、最新の状態が届いたら差し替える（Apps Script の返事は1〜3秒かかるため）
+  try { const c = JSON.parse(store.get('meiwa-car-state') || 'null'); if (c) applyState(c, true); } catch {}
   refreshState();
   if (S.tab === 'log') refreshLogs();
   setInterval(() => { if (document.visibilityState === 'visible') refreshState(); }, POLL_MS);
