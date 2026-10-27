@@ -117,7 +117,12 @@ function doPost(e) {
   try {
     switch (req.action) {
       case 'state': return json_({ ok: true, state: getState_() });
-      case 'logs': return json_({ ok: true, logs: getLogs_(req.month) });
+      case 'logs': {
+        // ログは管理者だけが見られる
+        const admin = checkAdmin_(req.code);
+        if (!admin.ok) return json_(admin);
+        return json_({ ok: true, logs: getLogs_(req.month) });
+      }
       case 'start': return json_(withLock_(() => start_(req.carId, req.userName)));
       case 'return': return json_(withLock_(() => return_(req.carId, req.userName, req.code, req.fuelLow, req.oilLamp)));
       case 'undo': return json_(withLock_(() => undo_(req.type, req.logId, req.prevFuel, req.prevOil)));

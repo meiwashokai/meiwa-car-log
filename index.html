@@ -227,6 +227,13 @@ tr:last-child td{border-bottom:0}
 
     <!-- ログタブ -->
     <section class="panel" id="p-log" hidden>
+      <form class="admin" id="log-lock">
+        <p>ログは管理者だけが見られます。<b>管理者コード（6桁）</b>を入力してください。</p>
+        <div class="row"><input id="log-code" type="password" inputmode="numeric" autocomplete="off" maxlength="6" aria-label="管理者コード">
+          <button class="btn primary" type="submit">開く</button></div>
+      </form>
+      <div id="log-body" hidden>
+      <div class="sec-h"><span class="label">管理者として表示中</span><button class="btn" type="button" id="log-lockbtn">閉じる</button></div>
       <div class="filters">
         <div class="field full"><label for="f-month">月</label><input type="month" id="f-month"></div>
         <div class="field"><label for="f-car">車両</label><select id="f-car"></select></div>
@@ -239,6 +246,7 @@ tr:last-child td{border-bottom:0}
       <div class="sec">
         <div class="label">記録</div>
         <div id="logs" class="sec"></div>
+      </div>
       </div>
     </section>
     <!-- その他タブ -->
@@ -259,7 +267,6 @@ tr:last-child td{border-bottom:0}
           </ol>
           <div class="a2hs-btns" id="a2hs-btns">
             <button class="primary" id="a2hs-install" hidden>ホーム画面に追加</button>
-            <button class="primary" id="a2hs-done">追加した</button>
           </div>
         </div>
       </div>
@@ -305,11 +312,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.27-9"></script>
+<script src="config.js?v=2026.10.27-10"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.27-9';
+  const APP_VERSION = '2026.10.27-10';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -351,7 +358,9 @@ tr:last-child td{border-bottom:0}
     // me = このスマホに登録した本人（変更は管理者コードが必要）、pick = 初回登録前に選んだ名前
     me: store.get('meiwa-car-owner'), pick: null, adminOpen: false, carSel: null,
     rep: {}, // 返却前の確認画面で選んだ報告（fuel・oil）
-    tab: store.get('meiwa-car-tab') === 'log' ? 'log' : 'rec',
+    tab: 'rec', // 開いたときは毎回「記録する」から
+    // ログを見るための管理者コード（このタブを閉じるまで覚えておく）
+    adminCode: (() => { try { return sessionStorage.getItem('meiwa-car-admin'); } catch { return null; } })(),
     month: fYM.format(Date.now()),
     pending: 0, undo: null, fatal: false, skew: 0
   };
@@ -426,15 +435,32 @@ tr:last-child td{border-bottom:0}
     try { applyState((await api('state')).state); } catch {}
   }
 
+  function setAdminCode(code) {
+    S.adminCode = code;
+    try { code ? sessionStorage.setItem('meiwa-car-admin', code) : sessionStorage.removeItem('meiwa-car-admin'); } catch {}
+    if (!code) { S.logs = []; S.logsLoaded = false; }
+    renderLogLock();
+  }
+  // 管理者コードを入れるまではログを出さない
+  function renderLogLock() {
+    $('log-lock').hidden = !!S.adminCode;
+    $('log-body').hidden = !S.adminCode;
+  }
   async function refreshLogs() {
     if (S.fatal) return;
+    renderLogLock();
+    if (!S.adminCode) return;
     const month = S.month;
     try {
-      const j = await api('logs', { month });
+      const j = await api('logs', { month, code: S.adminCode });
       if (month !== S.month) return; // 途中で月を切り替えた場合は捨てる
       S.logs = j.logs || []; S.logsLoaded = true;
       renderLogFilters(); renderLogs();
-    } catch (e) { handleErr(e, true); }
+    } catch (e) {
+      if (e?.error === 'admin_auth') { setAdminCode(null); toast('管理者コードが違います'); return; }
+      if (e?.error === 'admin_locked') { setAdminCode(null); toast('間違いが続いたため、10分間は管理者コードを受け付けません'); return; }
+      handleErr(e, true);
+    }
   }
 
   // ===== 描画 =====
@@ -669,7 +695,7 @@ tr:last-child td{border-bottom:0}
 
   // 開けない状態（設定漏れ・合言葉なし）は画面全体で案内する
   // ===== ホーム画面に追加の案内（その他タブ） =====
-  // まだ追加していない人には「その他」タブに赤い点を付ける。「追加した」かアイコンから開けば消える
+  // 「その他」タブに赤い点を付けて案内に気づいてもらう。一度開くか、アイコンから開けば消える
   const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const IOS_CHROME = IS_IOS && /CriOS/.test(navigator.userAgent);
   const A2HS_KEY = 'meiwa-car-a2hs';
@@ -683,11 +709,11 @@ tr:last-child td{border-bottom:0}
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderA2hs(); });
   window.addEventListener('appinstalled', a2hsSet);
   // 前の版で「追加した」を押した人（{"state":"done",…} の形で保存）も済みとして扱う
-  const a2hsMarked = () => /done/.test(store.get(A2HS_KEY) || '');
-  const a2hsDone = () => STANDALONE || a2hsMarked();
-  function a2hsSet() { store.set(A2HS_KEY, 'done'); renderA2hs(); }
+  // 前の版で保存した値（"done" や {"state":…}）が入っていれば見たことがあるとみなす
+  const a2hsSeen = () => STANDALONE || !!store.get(A2HS_KEY);
+  function a2hsSet() { store.set(A2HS_KEY, 'seen'); renderA2hs(); }
   function renderA2hs() {
-    $('more-dot').hidden = a2hsDone();
+    $('more-dot').hidden = a2hsSeen();
     const ok = STANDALONE;
     $('a2hs').classList.toggle('ok', ok);
     $('a2hs-msg').textContent = ok
@@ -698,13 +724,11 @@ tr:last-child td{border-bottom:0}
     if (IOS_CHROME) $('a2hs-ios-1').firstChild.textContent = 'アドレスバー右の ';
     // Android は Chrome がボタン1つで追加できるときはボタン、できないときは手順を出す
     $('a2hs-android-steps').hidden = ok || IS_IOS || !!installEvt;
-    $('a2hs-btns').hidden = ok;
-    $('a2hs-install').hidden = IS_IOS || !installEvt;
-    $('a2hs-done').hidden = !IS_IOS && !!installEvt;
-    $('a2hs-done').textContent = a2hsMarked() ? '追加済み' : '追加した';
+    // ボタンは Android でボタン1つで追加できるときだけ（押すと本当に追加される）
+    $('a2hs-btns').hidden = ok || IS_IOS || !installEvt;
   }
   function renderMore() {
-    renderA2hs();
+    a2hsSet();
     $('more-me').textContent = findPerson() ? `${findPerson().name} さん` : '未登録';
   }
   async function onA2hsInstall() {
@@ -927,10 +951,21 @@ tr:last-child td{border-bottom:0}
       if (S.tab === 'log') refreshLogs();
     }
   });
-  document.addEventListener('submit', e => { if (e.target.id === 'admin-form') onAdminSubmit(e); });
+  document.addEventListener('submit', e => {
+    if (e.target.id === 'admin-form') onAdminSubmit(e);
+    if (e.target.id === 'log-lock') {
+      e.preventDefault();
+      const code = $('log-code').value.trim();
+      if (!/^\d{6}$/.test(code)) { toast('6桁の数字を入力してください'); return; }
+      $('log-code').value = ''; $('log-code').blur();
+      setAdminCode(code);
+      $('summary').innerHTML = '<div class="loading">読み込んでいます…</div>'; $('logs').innerHTML = '';
+      refreshLogs();
+    }
+  });
+  $('log-lockbtn').addEventListener('click', () => setAdminCode(null));
   $('act').addEventListener('click', onActClick);
   $('a2hs-install').addEventListener('click', onA2hsInstall);
-  $('a2hs-done').addEventListener('click', a2hsSet);
   $('ret-go').addEventListener('click', () => { closeReturnSheet(); onAct(S.rep); });
   $('ret-cancel').addEventListener('click', closeReturnSheet);
   // 暗い部分をタップ・戻るキーで閉じる
