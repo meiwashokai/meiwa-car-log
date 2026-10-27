@@ -110,12 +110,14 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 /* 下部固定: アクション + タブ */
 .dock{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
 .dock .wrap{display:flex;flex-direction:column;gap:10px;padding-block:10px 0}
-/* 返却時の「ガソリン少なめ」チェック */
+/* 返却時の「ガソリン少なめ」「オイルランプ点灯」チェック */
 .fuel{display:flex;align-items:center;gap:12px;min-height:52px;padding:8px 14px;border:1.5px solid var(--line);border-radius:12px;
   background:var(--surface);font-size:17px;font-weight:700;cursor:pointer}
 .fuel input{width:26px;height:26px;margin:0;flex:none;accent-color:var(--busy-strong)}
 .fuel small{font-size:13px;font-weight:400;color:var(--muted)}
 .fuel:has(input:checked){border-color:var(--busy-strong);background:var(--busy-bg);color:var(--busy)}
+.oil input{accent-color:var(--danger)}
+.oil:has(input:checked){border-color:var(--danger);background:var(--danger-bg);color:var(--danger)}
 .act{width:100%;min-height:62px;border:0;border-radius:14px;background:var(--accent);color:var(--accent-ink);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 12px}
 .act b{font-family:var(--f-head);font-size:20px;letter-spacing:.08em}
@@ -211,6 +213,7 @@ tr:last-child td{border-bottom:0}
   <div class="wrap">
     <div class="toast" id="toast" role="status" hidden><span id="toast-msg"></span><button id="toast-undo" hidden>取り消す</button></div>
     <label class="fuel" id="fuel" hidden><input type="checkbox" id="fuel-cb"><span>ガソリン少なめ<small>（給油が必要）</small></span></label>
+    <label class="fuel oil" id="oil" hidden><input type="checkbox" id="oil-cb"><span>オイルランプ点灯<small>（点検が必要）</small></span></label>
     <button class="act" id="act" disabled><b>使用開始</b><span>読み込んでいます…</span></button>
     <nav class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="rec" aria-selected="true">記録する</button>
@@ -219,11 +222,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.27-2"></script>
+<script src="config.js?v=2026.10.27-3"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.27-2';
+  const APP_VERSION = '2026.10.27-3';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -417,6 +420,7 @@ tr:last-child td{border-bottom:0}
       if (left < 0) items.push({ cls: 'danger', label: '車検', text: `車検月（${y}年${m}月）を過ぎています` });
       else items.push({ cls: left <= 1 ? 'warn' : '', label: '車検', text: `${y}年${m}月 車検予定` });
     }
+    if (c.oil) items.push({ cls: 'danger', label: 'オイル', text: `オイルランプ点灯（${c.oil}）` });
     if (c.fuel) items.push({ cls: 'warn', label: '給油', text: `ガソリン少なめ（${c.fuel}）` });
     if (c.note) items.push({ cls: 'warn', label: 'お知らせ', text: c.note });
     if (!items.length) return '';
@@ -483,8 +487,8 @@ tr:last-child td{border-bottom:0}
     }
     btn.innerHTML = `<b>${esc(title)}</b><span>${esc(sub)}</span>`;
     btn.disabled = !ok;
-    // 自分の車を返却するときだけ「ガソリン少なめ」を出す
-    $('fuel').hidden = !(ok && st?.inUse);
+    // 自分の車を返却するときだけ「ガソリン少なめ」「オイルランプ点灯」を出す
+    $('fuel').hidden = $('oil').hidden = !(ok && st?.inUse);
   }
 
   function filteredLogs() {
@@ -532,7 +536,7 @@ tr:last-child td{border-bottom:0}
     list.forEach(l => { const k = fMD.format(l.startMs); (days.get(k) || days.set(k, []).get(k)).push(l); });
     $('logs').innerHTML = [...days].map(([d, ls]) => `<div class="day"><div class="day-h">${esc(d)}</div>${ls.map(l => {
       const range = `${hm(l.startMs)}–${l.endMs ? hm(l.endMs) : ''}`;
-      const sub = [l.plate, l.returnedBy && l.returnedBy !== l.userName ? `返却：${l.returnedBy}さん` : '', l.fuelLow ? 'ガソリン少なめ' : ''].filter(Boolean).join(' · ');
+      const sub = [l.plate, l.returnedBy && l.returnedBy !== l.userName ? `返却：${l.returnedBy}さん` : '', l.fuelLow ? 'ガソリン少なめ' : '', l.oilLamp ? 'オイルランプ点灯' : ''].filter(Boolean).join(' · ');
       const right = l.endMs ? dur(mins(l.startMs, l.endMs)) : `<span class="open">使用中</span>`;
       return `<div class="log"><span class="t">${range}</span><div class="who"><div>${esc(l.userName)} · ${esc(l.carName)}</div>${sub ? `<div>${esc(sub)}</div>` : ''}</div><span class="d">${right}</span></div>`;
     }).join('')}</div>`).join('');
@@ -607,24 +611,26 @@ tr:last-child td{border-bottom:0}
     const prev = S.status[car.id];
     const inUse = !!prev?.inUse;
     const t = now();
-    // 返却時の「ガソリン少なめ」。カードの給油メモも先に書き換えておく
+    // 返却時の「ガソリン少なめ」「オイルランプ点灯」。カードの表示も先に書き換えておく
     const fuelLow = inUse ? $('fuel-cb').checked : undefined;
-    const prevFuel = car.fuel || '';
-    if (inUse) setCarFuel(car.id, fuelLow ? `${fMDshort(t)} ${person.name}さんが報告` : '');
+    const oilLamp = inUse ? $('oil-cb').checked : undefined;
+    const prevFuel = car.fuel || '', prevOil = car.oil || '';
+    const memo = `${fMDshort(t)} ${person.name}さんが報告`;
+    if (inUse) setCarMemo(car.id, { fuel: fuelLow ? memo : '', oil: oilLamp ? memo : '' });
     S.status = { ...S.status, [car.id]: inUse
       ? { inUse: false, lastReturnMs: t, lastUserName: prev.userName }
       : { inUse: true, userName: person.name, sinceMs: t, logId: null } };
     renderCars(); renderAction();
     // 取り消し用の控え。logId は保存が終わった時点で入る
-    const op = { type: inUse ? 'return' : 'start', carId: car.id, prev, prevFuel, logId: null, failed: false };
+    const op = { type: inUse ? 'return' : 'start', carId: car.id, prev, prevFuel, prevOil, logId: null, failed: false };
     S.undo = op;
     toast(inUse
-      ? `${hm(t)}　${car.name} を返却しました（${dur(mins(prev.sinceMs, t))}）${fuelLow ? '・ガソリン少なめ' : ''}`
+      ? `${hm(t)}　${car.name} を返却しました（${dur(mins(prev.sinceMs, t))}）${fuelLow ? '・ガソリン少なめ' : ''}${oilLamp ? '・オイルランプ点灯' : ''}`
       : `${hm(t)}　${car.name} の使用を開始しました`, true);
 
     enqueue(async () => {
       try {
-        const j = await api(op.type, { carId: car.id, userName: person.name, ...(inUse ? { fuelLow } : {}) });
+        const j = await api(op.type, { carId: car.id, userName: person.name, ...(inUse ? { fuelLow, oilLamp } : {}) });
         op.logId = j.logId;
         applyIfLast(j.state);
         if (S.logsLoaded && S.pending === 1) refreshLogs();
@@ -637,9 +643,9 @@ tr:last-child td{border-bottom:0}
     });
   }
 
-  // 画面上の車両の給油メモを書き換える（サーバーの返事を待たずに表示を合わせる）
-  function setCarFuel(carId, memo) {
-    S.cars = S.cars.map(c => c.id === carId ? { ...c, fuel: memo } : c);
+  // 画面上の車両の給油メモ・オイルランプ欄を書き換える（サーバーの返事を待たずに表示を合わせる）
+  function setCarMemo(carId, memo) {
+    S.cars = S.cars.map(c => c.id === carId ? { ...c, ...memo } : c);
   }
   const fMDshort = ms => { const [, m, d] = fYMD.format(ms).split('-').map(Number); return `${m}/${d}`; };
 
@@ -693,14 +699,14 @@ tr:last-child td{border-bottom:0}
     S.undo = null; $('toast').hidden = true;
     // 画面はすぐ元に戻し、保存済みの記録は裏で取り消す
     S.status = { ...S.status, [op.carId]: op.prev };
-    if (op.type === 'return') setCarFuel(op.carId, op.prevFuel);
+    if (op.type === 'return') setCarMemo(op.carId, { fuel: op.prevFuel, oil: op.prevOil });
     renderCars(); renderAction();
     toast('取り消しました');
 
     enqueue(async () => {
       if (op.failed || !op.logId) return; // 記録自体が保存されていなければ何もしない
       try {
-        const j = await api('undo', { type: op.type, logId: op.logId, ...(op.type === 'return' ? { prevFuel: op.prevFuel } : {}) });
+        const j = await api('undo', { type: op.type, logId: op.logId, ...(op.type === 'return' ? { prevFuel: op.prevFuel, prevOil: op.prevOil } : {}) });
         applyIfLast(j.state);
         if (S.logsLoaded && S.pending === 1) refreshLogs();
       } catch (e) {
@@ -713,10 +719,10 @@ tr:last-child td{border-bottom:0}
   // ===== CSV保存 =====
   function saveCsv() {
     const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const rows = [['車両', 'ナンバー', '使用者', '使用開始', '返却', '返却者', '使用時間(分)', 'ガソリン少なめ']];
+    const rows = [['車両', 'ナンバー', '使用者', '使用開始', '返却', '返却者', '使用時間(分)', 'ガソリン少なめ', 'オイルランプ点灯']];
     filteredLogs().slice().reverse().forEach(l => rows.push([
       l.carName, l.plate, l.userName, fFull.format(l.startMs), l.endMs ? fFull.format(l.endMs) : '使用中',
-      l.returnedBy || '', l.endMs ? mins(l.startMs, l.endMs) : '', l.fuelLow ? '○' : ''
+      l.returnedBy || '', l.endMs ? mins(l.startMs, l.endMs) : '', l.fuelLow ? '○' : '', l.oilLamp ? '○' : ''
     ]));
     // Excelで文字化けしないようBOM付き
     const blob = new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' });
@@ -736,8 +742,9 @@ tr:last-child td{border-bottom:0}
     if (t.dataset.adminClose) { S.adminOpen = false; renderPeople(); return; }
     if (t.dataset.car) {
       S.carSel = S.carSel === t.dataset.car ? null : t.dataset.car;
-      // ガソリン少なめの報告がある車は、最初からチェックを入れておく（給油したら外して返却）
+      // 報告がある車は、最初からチェックを入れておく（給油・点検したら外して返却）
       $('fuel-cb').checked = !!findCar()?.fuel;
+      $('oil-cb').checked = !!findCar()?.oil;
       if (S.adminOpen === 'proxy') S.adminOpen = false;
       renderCars(); renderPeople(); renderAction(); return;
     }
