@@ -362,11 +362,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.30-1"></script>
+<script src="config.js?v=2026.10.30-2"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.30-1';
+  const APP_VERSION = '2026.10.30-2';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -580,10 +580,12 @@ tr:last-child td{border-bottom:0}
     const today = fYMD.format(now()).split('-').map(Number);
     const dayNo = (y, m, d) => Date.UTC(y, m - 1, d) / 86400000;
     const items = [];
-    // 今日・明日の予約
+    // これからの予約（近い順に3件まで。多いときは件数だけ出す）
     const t0 = ymdAfter(0), t1 = ymdAfter(1);
-    S.reserves.filter(v => v.carId === c.id && (v.date === t0 || v.date === t1) && !resPast(v)).forEach(v =>
-      items.push({ cls: 'res', label: '予約', text: `${v.date === t0 ? '今日' : '明日'} ${SLOT_L[v.slot]} ${v.userName}さん` }));
+    const when = d => d === t0 ? '今日' : d === t1 ? '明日' : dayLabel(d);
+    const rs = S.reserves.filter(v => v.carId === c.id && !resPast(v)).sort((a, b) => (a.date + a.slot).localeCompare(b.date + b.slot));
+    rs.slice(0, 3).forEach(v => items.push({ cls: 'res', label: '予約', text: `${when(v.date)} ${SLOT_L[v.slot]} ${v.userName}さん` }));
+    if (rs.length > 3) items.push({ cls: 'res', label: '予約', text: `ほか ${rs.length - 3}件（予約タブで確認）` });
     if (c.inspect) {
       const [y, m, d] = c.inspect.split('-').map(Number);
       const left = dayNo(y, m, d) - dayNo(today[0], today[1], today[2]);
