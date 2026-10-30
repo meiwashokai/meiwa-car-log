@@ -123,7 +123,12 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 12px;font-size:14px;font-weight:700;white-space:nowrap}
 .pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
 .pill.free{background:var(--free-bg);color:var(--free)}
-.pill.busy{background:var(--busy-bg);color:var(--busy)}
+.pill.busy{background:var(--busy);color:#fff;font-size:15px;padding:6px 14px}
+.pill.busy::before{background:#fff}
+/* 使用中の車はカード全体を色付けし、左に太い帯を出して、遠目でも空きと区別できるようにする */
+.car.in-use{background:#fff6ea;border-color:#efc58e;border-left:8px solid var(--busy-strong);padding-left:12px}
+.car.in-use .car-meta{color:var(--busy)}
+.car.in-use[aria-pressed="true"]{border-color:var(--accent);border-left-color:var(--busy-strong)}
 /* 車両カードの予定・お知らせ（点検・車検・お知らせ）。近い予定はオレンジ、期限切れは赤 */
 .car-notes{grid-column:1/-1;display:flex;flex-direction:column;gap:6px}
 .note{display:flex;align-items:baseline;gap:10px;border-radius:8px;padding:7px 10px;background:var(--note-bg);
@@ -373,11 +378,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.30-3"></script>
+<script src="config.js?v=2026.10.30-4"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.30-3';
+  const APP_VERSION = '2026.10.30-4';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -637,7 +642,7 @@ tr:last-child td{border-bottom:0}
       const meta = st?.inUse
         ? `<span><span class="busy-by">${esc(st.userName)}</span>さん · <span class="num">${hm(st.sinceMs)}</span>から（${dur(mins(st.sinceMs, t))}）</span>`
         : (st?.lastReturnMs ? `<span>最終返却 <span class="num">${fMD.format(st.lastReturnMs)} ${hm(st.lastReturnMs)}</span></span>` : '');
-      return `<button class="car" data-car="${esc(c.id)}" aria-pressed="${c.id === S.carSel}">
+      return `<button class="car${st?.inUse ? ' in-use' : ''}" data-car="${esc(c.id)}" aria-pressed="${c.id === S.carSel}">
         <span class="car-name">${esc(c.name)}</span>${pill}
         <span class="car-meta">${c.plate ? `<span class="plate">${esc(c.plate)}</span>` : ''}${meta}</span>${carNotes(c)}
       </button>`;
