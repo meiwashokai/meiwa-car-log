@@ -10,9 +10,16 @@
  *            C列「点検予定日」、D列「車検予定」（年と月）、E列「お知らせ」（例：給油必要）は任意。アプリの車両カードに表示される
  *   ログ   … アプリが自動で書き込む。手で触らない
  *   端末   … スマホを本人専用に登録した記録。アプリが自動で書き込む
+ *   予約   … アプリが自動で書き込む。取り消した予約も「取消日時」を入れて残す
  */
 
-const SHEET = { people: '使用者', cars: '車両', logs: 'ログ', devices: '端末' };
+const SHEET = { people: '使用者', cars: '車両', logs: 'ログ', devices: '端末', reserves: '予約' };
+// 予約シートの列。日付は "2026-11-02" の文字、枠は 午前／午後／終日
+const RES_HEADERS = ['ID', '日付', '枠', '車両', '使用者', '登録日時', '取消日時', '取消者'];
+const RES_COL = { id: 1, date: 2, slot: 3, car: 4, user: 5, created: 6, canceledAt: 7, canceledBy: 8 };
+const SLOT_NAME = { am: '午前', pm: '午後', day: '終日' };
+// 何日先まで予約できるか（今日を0日目として）
+const RESERVE_DAYS = 7;
 const DEVICE_HEADERS = ['登録日時', '名前', '端末ID', '端末の種類'];
 // 車両シートの列。C〜E列はカードに表示する予定・お知らせ（空欄なら表示しない）
 // F列「給油メモ」は返却時の「ガソリン少なめ」でアプリが書き込む（管理者が消してもよい）
@@ -44,6 +51,9 @@ function setup() {
   if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
 
   ensureSheet_(ss, SHEET.devices, DEVICE_HEADERS);
+  const res = ensureSheet_(ss, SHEET.reserves, RES_HEADERS);
+  addMissingHeaders_(res, RES_HEADERS);
+  res.hideColumns(RES_COL.id);
 
   const props = PropertiesService.getScriptProperties();
   if (!props.getProperty('PASSKEY')) props.setProperty('PASSKEY', newPasskey_());
@@ -128,6 +138,8 @@ function doPost(e) {
       case 'undo': return json_(withLock_(() => undo_(req.type, req.logId, req.prevFuel, req.prevOil)));
       case 'register': return json_(withLock_(() => register_(req.userName, req.deviceId, req.ua)));
       case 'admin': return json_(checkAdmin_(req.code));
+      case 'reserve': return json_(withLock_(() => reserve_(req.carId, req.userName, req.date, req.slot)));
+      case 'cancelReserve': return json_(withLock_(() => cancelReserve_(req.id, req.userName, req.code)));
       default: return json_({ ok: false, error: 'bad_request' });
     }
   } catch (err) {
@@ -229,7 +241,86 @@ function computeState_() {
       if (!cur || (cur.lastReturnMs || 0) < l.endMs) status[l.carId] = { inUse: false, lastReturnMs: l.endMs, lastUserName: l.userName };
     }
   });
-  return saveState_({ people: readPeople_(), cars: readCars_(), status: status });
+  return saveState_({ people: readPeople_(), cars: readCars_(), status: status, reserves: readReserves_() });
+}
+
+// ===== 予約 =====
+// 日本時間の今日を "2026-11-02" の形で。days を足した日も出せる
+function ymdJst_(days) {
+  return Utilities.formatDate(new Date(Date.now() + (days || 0) * 86400000), 'Asia/Tokyo', 'yyyy-MM-dd');
+}
+// 午前は12時まで、午後は12時から
+function nowSlot_() {
+  return Number(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'H')) < 12 ? 'am' : 'pm';
+}
+const SLOT_KEY = { '午前': 'am', '午後': 'pm', '終日': 'day' };
+// 終日は午前・午後のどちらとも重なる
+const slotsOverlap_ = (a, b) => a === b || a === 'day' || b === 'day';
+
+// 今日以降の、取り消されていない予約（予約シートがまだなければ空）
+function readReserves_() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET.reserves);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const today = ymdJst_(0);
+  return sh.getRange(2, 1, sh.getLastRow() - 1, RES_HEADERS.length).getValues()
+    .map(r => ({
+      id: String(r[RES_COL.id - 1]), date: toYMD_(r[RES_COL.date - 1]), slot: SLOT_KEY[String(r[RES_COL.slot - 1]).trim()] || '',
+      carId: String(r[RES_COL.car - 1]).trim(), userName: String(r[RES_COL.user - 1]).trim(),
+      canceled: !!r[RES_COL.canceledAt - 1]
+    }))
+    .filter(v => v.id && v.date && v.slot && !v.canceled && v.date >= today)
+    .map(v => ({ id: v.id, date: v.date, slot: v.slot, carId: v.carId, userName: v.userName }))
+    .sort((a, b) => (a.date + a.slot).localeCompare(b.date + b.slot));
+}
+
+function reserve_(carId, userName, date, slot) {
+  const state = computeState_();
+  const car = state.cars.find(c => c.id === carId);
+  if (!car) return { ok: false, error: 'unknown_car' };
+  if (!state.people.some(p => p.name === userName)) return { ok: false, error: 'unknown_user' };
+  if (!SLOT_NAME[slot] || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return { ok: false, error: 'bad_request' };
+  // 予約できるのは今日から RESERVE_DAYS 日先まで。今日の午前は12時を過ぎたら予約できない
+  if (date < ymdJst_(0) || date > ymdJst_(RESERVE_DAYS)) return { ok: false, error: 'out_of_range', state: state };
+  if (date === ymdJst_(0) && nowSlot_() === 'pm' && slot !== 'pm') return { ok: false, error: 'out_of_range', state: state };
+  const same = state.reserves.filter(v => v.date === date && slotsOverlap_(v.slot, slot));
+  // 同じ車・同じ時間に先約がある
+  const taken = same.find(v => v.carId === carId);
+  if (taken) return { ok: false, error: 'reserved', userName: taken.userName, state: state };
+  // 1人が同じ時間に予約できるのは1台まで
+  const mine = same.find(v => v.userName === userName);
+  if (mine) return { ok: false, error: 'already_reserved', carName: mine.carId, state: state };
+
+  const id = Utilities.getUuid();
+  const sh = ensureSheet_(SpreadsheetApp.getActiveSpreadsheet(), SHEET.reserves, RES_HEADERS);
+  // 日付は文字として残す（' を付けないとシートが日付に変換する）
+  sh.appendRow([id, "'" + date, SLOT_NAME[slot], car.name, userName, new Date(), '', '']);
+  sh.getRange(sh.getLastRow(), RES_COL.created).setNumberFormat('yyyy/mm/dd HH:mm');
+  state.reserves = state.reserves.concat([{ id: id, date: date, slot: slot, carId: carId, userName: userName }])
+    .sort((a, b) => (a.date + a.slot).localeCompare(b.date + b.slot));
+  return { ok: true, id: id, state: saveState_(state) };
+}
+
+// 予約を取り消せるのは予約した本人だけ。ほかの人の予約は管理者コードがあれば取り消せる
+function cancelReserve_(id, userName, code) {
+  const state = computeState_();
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET.reserves);
+  const v = state.reserves.find(x => x.id === String(id || ''));
+  if (!sh || !v) return { ok: false, error: 'not_found', state: state };
+  if (v.userName !== userName) {
+    if (!code) return { ok: false, error: 'not_owner', userName: v.userName, state: state };
+    const admin = checkAdmin_(code);
+    if (!admin.ok) return admin;
+  }
+  const ids = sh.getRange(2, RES_COL.id, sh.getLastRow() - 1, 1).getValues();
+  for (let i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0]) === v.id) {
+      sh.getRange(i + 2, RES_COL.canceledAt, 1, 2).setValues([[new Date(), userName || '']]);
+      sh.getRange(i + 2, RES_COL.canceledAt).setNumberFormat('yyyy/mm/dd HH:mm');
+      break;
+    }
+  }
+  state.reserves = state.reserves.filter(x => x.id !== v.id);
+  return { ok: true, state: saveState_(state) };
 }
 
 // 状態をキャッシュに入れて返す（他の人のスマホからの読み込みも速くなる）
