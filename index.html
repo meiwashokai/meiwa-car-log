@@ -73,6 +73,11 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 .more-card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}
 .more-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:15px}
 .more-row b{font-size:18px}
+.more-link{width:100%;display:flex;justify-content:flex-start;align-items:center;gap:12px;background:none;border:0;padding:4px 0;
+  font-size:17px;font-weight:700;color:var(--accent);text-align:left}
+.more-link span{margin-left:auto;font-size:12px;font-weight:400;color:var(--muted)}
+.more-link::after{content:'›';font-size:22px;color:var(--muted)}
+.back{display:block;background:none;border:0;padding:0 0 12px;font-size:15px;font-weight:700;color:var(--accent)}
 .more-note{margin:8px 0 0;font-size:14px;line-height:1.7;color:var(--muted)}
 .more-card .more-note:first-child{margin-top:0}
 .a2hs-h{display:flex;gap:12px;align-items:center;font-weight:700;font-size:16px;line-height:1.45}
@@ -265,6 +270,7 @@ tr:last-child td{border-bottom:0}
 
     <!-- ログタブ -->
     <section class="panel" id="p-log" hidden>
+      <button class="back" data-tab="more">‹ その他に戻る</button>
       <form class="admin" id="log-lock">
         <p>ログは管理者だけが見られます。<b>管理者コード（6桁）</b>を入力してください。</p>
         <div class="row"><input id="log-code" type="password" inputmode="numeric" autocomplete="off" maxlength="6" aria-label="管理者コード">
@@ -316,6 +322,12 @@ tr:last-child td{border-bottom:0}
         </div>
       </div>
       <div class="sec">
+        <h2 class="more-h">管理者メニュー</h2>
+        <div class="more-card">
+          <button class="more-link" data-tab="log">ログを見る<span>管理者コードが必要です</span></button>
+        </div>
+      </div>
+      <div class="sec">
         <h2 class="more-h">うまく動かないとき</h2>
         <div class="more-card">
           <p class="more-note">Mattermost の「車両管理」チャンネルにピン止めされたリンクから開き直してください。それでも直らないときは、ICT担当に連絡してください。</p>
@@ -356,17 +368,16 @@ tr:last-child td{border-bottom:0}
     <nav class="tabs" role="tablist">
       <button class="tab" role="tab" data-tab="rec" aria-selected="true">記録する</button>
       <button class="tab" role="tab" data-tab="res" aria-selected="false">予約</button>
-      <button class="tab" role="tab" data-tab="log" aria-selected="false">ログ</button>
       <button class="tab" role="tab" data-tab="more" aria-selected="false">その他<span class="tab-dot" id="more-dot" hidden></span></button>
     </nav>
   </div>
 </div>
 
-<script src="config.js?v=2026.10.30-2"></script>
+<script src="config.js?v=2026.10.30-3"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.30-2';
+  const APP_VERSION = '2026.10.30-3';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -725,7 +736,9 @@ tr:last-child td{border-bottom:0}
   }
 
   function renderTabs() {
-    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === S.tab)));
+    // ログは「その他」の中の画面なので、その間も「その他」タブを選択中にする
+    const cur = S.tab === 'log' ? 'more' : S.tab;
+    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === cur)));
     $('p-rec').hidden = S.tab !== 'rec';
     $('p-log').hidden = S.tab !== 'log';
     $('p-more').hidden = S.tab !== 'more';
