@@ -133,6 +133,11 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 .car.in-use.mine{background:var(--accent-soft);border-color:#b7c8e8;border-left-color:var(--accent)}
 .car.in-use[aria-pressed="true"]{border-color:var(--accent);border-left-color:#3d4757}
 .car.in-use.mine[aria-pressed="true"]{border-left-color:var(--accent)}
+/* 納車前の車：点線の枠で「まだ来ていない」ことを表し、選べないようにする */
+.car.pending{background:transparent;border-style:dashed;box-shadow:none;cursor:default}
+.car.pending .car-name{color:var(--muted)}
+.pill.wait{background:transparent;border:1.5px dashed var(--muted);color:var(--muted)}
+.due{font-size:15px;font-weight:700;color:var(--ink)}
 /* 車両カードの予定・お知らせ（点検・車検・お知らせ）。近い予定はオレンジ、期限切れは赤 */
 .car-notes{grid-column:1/-1;display:flex;flex-direction:column;gap:6px}
 .note{display:flex;align-items:baseline;gap:10px;border-radius:8px;padding:7px 10px;background:var(--note-bg);
@@ -148,6 +153,7 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 .res-cars{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
 .res-car{min-height:48px;padding:8px 14px;border:1.5px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font-size:16px;font-weight:700}
 .res-car[aria-pressed="true"]{border-color:var(--accent);background:var(--accent);color:var(--accent-ink)}
+.res-car small{font-size:12px;font-weight:700;opacity:.8;margin-left:4px}
 .res-grid{display:grid;grid-template-columns:5.6em 1fr 1fr 3.8em;gap:6px;align-items:stretch}
 .res-grid .hd{font-size:12px;font-weight:700;color:var(--muted);text-align:center;padding-bottom:2px}
 .res-day{display:flex;flex-direction:column;justify-content:center;font-size:14px;font-weight:700;line-height:1.25}
@@ -382,11 +388,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.10.30-5"></script>
+<script src="config.js?v=2026.11.02-1"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.10.30-5';
+  const APP_VERSION = '2026.11.02-1';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -630,11 +636,18 @@ tr:last-child td{border-bottom:0}
       `<span class="note ${n.cls}"><b>${n.label}</b><span>${esc(n.text)}</span></span>`).join('')}</span>`;
   }
 
+  // 納車予定日がまだ来ていない車なら、その日付（"2027-01-09"）を返す
+  const pendingFrom = c => (c?.from && c.from > fYMD.format(now())) ? c.from : null;
+  const jpDate = ymd => { const [, m, d] = ymd.split('-').map(Number); return `${m}月${d}日`; };
+
   function renderCars() {
     const el = $('cars');
     if (!S.loaded) return;
-    const busyN = S.cars.filter(c => S.status[c.id]?.inUse).length;
-    $('car-count').textContent = S.cars.length ? `${S.cars.length}台中 ${busyN}台 使用中` : '';
+    // 納車前の車は台数に数えない。選んでいたら選択を外す
+    const ready = S.cars.filter(c => !pendingFrom(c));
+    if (S.carSel && pendingFrom(S.cars.find(c => c.id === S.carSel))) S.carSel = null;
+    const busyN = ready.filter(c => S.status[c.id]?.inUse).length;
+    $('car-count').textContent = ready.length ? `${ready.length}台中 ${busyN}台 使用中` : '';
     if (!S.cars.length) {
       el.innerHTML = `<div class="empty"><b>車両がまだ登録されていません。</b><br>管理者がスプレッドシートの「車両」シートに車種とナンバーを追加すると、ここに表示されます。</div>`;
       return;
@@ -643,6 +656,11 @@ tr:last-child td{border-bottom:0}
     const meName = findPerson()?.name;
     el.innerHTML = S.cars.map(c => {
       const st = S.status[c.id];
+      const from = pendingFrom(c);
+      if (from) return `<button class="car pending" disabled>
+        <span class="car-name">${esc(c.name)}</span><span class="pill wait">納車待ち</span>
+        <span class="car-meta">${c.plate ? `<span class="plate">${esc(c.plate)}</span>` : ''}<span class="due">${jpDate(from)}に納車予定</span></span>
+      </button>`;
       // 自分が使っている車は「あなたが使用中」と青で出し、返し忘れに気づけるようにする
       const mine = !!(st?.inUse && meName && st.userName === meName);
       const pill = !st?.inUse ? `<span class="pill free">空き</span>`
@@ -780,9 +798,12 @@ tr:last-child td{border-bottom:0}
     if (S.resCar && !S.cars.some(c => c.id === S.resCar)) S.resCar = null;
     if (!S.resCar) S.resCar = S.carSel || S.cars[0]?.id || null;
     setHTML($('res-cars'), S.cars.map(c =>
-      `<button class="res-car" data-res-car="${esc(c.id)}" aria-pressed="${c.id === S.resCar}">${esc(c.name)}</button>`).join(''));
+      `<button class="res-car" data-res-car="${esc(c.id)}" aria-pressed="${c.id === S.resCar}">${esc(c.name)}${pendingFrom(c) ? `<small>${jpDate(pendingFrom(c))}〜</small>` : ''}</button>`).join(''));
     if (!S.resCar) { setHTML($('res-grid'), ''); return; }
+    // 納車前の日は予約できない
+    const carFrom = S.cars.find(c => c.id === S.resCar)?.from || '';
     const cell = (date, slot) => {
+      if (date < carFrom) return `<button class="cell past" disabled>納車前</button>`;
       const v = findRes(S.resCar, date, slot);
       const past = date === ymdAfter(0) && slot === 'am' && nowSlot() === 'pm';
       if (v) {
@@ -802,7 +823,7 @@ tr:last-child td{border-bottom:0}
       if (d && d.slot === 'day') { html += cell(date, 'day'); continue; }
       html += cell(date, 'am') + cell(date, 'pm');
       // 終日は午前・午後とも空いているときだけ（今日は午前が終わったら選べない）
-      const canDay = !findRes(S.resCar, date, 'am') && !findRes(S.resCar, date, 'pm') && !(i === 0 && nowSlot() === 'pm');
+      const canDay = date >= carFrom && !findRes(S.resCar, date, 'am') && !findRes(S.resCar, date, 'pm') && !(i === 0 && nowSlot() === 'pm');
       html += canDay ? `<button class="cell dayb" data-res-new="${date}|day">終日</button>` : `<button class="cell past" disabled>−</button>`;
     }
     setHTML($('res-grid'), html + '</div>');
@@ -833,6 +854,7 @@ tr:last-child td{border-bottom:0}
     if (c === 'reserved') toast(`${e.userName}さんが先に予約しました`);
     else if (c === 'already_reserved') toast(`同じ時間に ${e.carName} を予約しています`);
     else if (c === 'out_of_range') toast('この日時は予約できません');
+    else if (c === 'not_delivered') toast(`${e.carName} は${jpDate(e.from)}に納車予定です`);
     else if (c === 'not_found') toast('この予約はすでに取り消されています');
     else if (c === 'not_owner') toast(`${e.userName}さんの予約です。取り消せるのは本人か管理者だけです`);
     else if (c === 'admin_auth') toast('管理者コードが違います');
@@ -966,6 +988,7 @@ tr:last-child td{border-bottom:0}
         : `<b>このリンクでは記録を開けません。</b><br>${PIN_MSG}`);
       return;
     }
+    if (code === 'not_delivered') { toast(`${e.carName} は${jpDate(e.from)}に納車予定です`); applyState(e.state); return; }
     if (code === 'in_use') { toast(`${e.userName}さんがすでに使用中です`); applyState(e.state); return; }
     if (code === 'not_in_use') { toast('この車両はすでに返却されています'); applyState(e.state); return; }
     if (code === 'already_using') { toast(`${e.carName} を使用中です。返却してから使用してください`); applyState(e.state); return; }
