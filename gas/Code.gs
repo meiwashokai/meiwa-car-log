@@ -23,9 +23,11 @@ const RESERVE_DAYS = 7;
 const DEVICE_HEADERS = ['登録日時', '名前', '端末ID', '端末の種類'];
 // 車両シートの列。C〜E列はカードに表示する予定・お知らせ（空欄なら表示しない）
 // F列「給油メモ」は返却時の「ガソリン少なめ」でアプリが書き込む（管理者が消してもよい）
-const CAR_HEADERS = ['車種', 'ナンバー', '点検予定日', '車検予定', 'お知らせ', '給油メモ', 'オイルランプ'];
+// H列「納車予定日」に日付を入れると、その日になるまでは「納車予定」と表示するだけで使用・予約はできない
+const CAR_HEADERS = ['車種', 'ナンバー', '点検予定日', '車検予定', 'お知らせ', '給油メモ', 'オイルランプ', '納車予定日'];
 const CAR_FUEL_COL = 6;
 const CAR_OIL_COL = 7;
+const CAR_FROM_COL = 8;
 const LOG_HEADERS = ['ID', '日付', '車両', 'ナンバー', '使用者', '使用開始', '返却', '使用時間(分)', '返却者', '開始ms', '返却ms', 'ガソリン少なめ', 'オイルランプ点灯'];
 // ログシートの列番号（1始まり）
 const COL = { id: 1, date: 2, car: 3, plate: 4, user: 5, start: 6, end: 7, minutes: 8, returnedBy: 9, startMs: 10, endMs: 11, fuelLow: 12, oilLamp: 13 };
@@ -186,7 +188,8 @@ function readCars_() {
       id: String(r[0]).trim(), name: String(r[0]).trim(), plate: String(r[1]).trim(),
       inspect: toYMD_(r[2]), shaken: toYM_(r[3]), note: String(r[4] || '').trim(),
       fuel: String(r[CAR_FUEL_COL - 1] || '').trim(),
-      oil: String(r[CAR_OIL_COL - 1] || '').trim()
+      oil: String(r[CAR_OIL_COL - 1] || '').trim(),
+      from: toYMD_(r[CAR_FROM_COL - 1])
     }))
     .filter(c => c.id && !seen[c.id] && (seen[c.id] = true));
 }
@@ -282,6 +285,8 @@ function reserve_(carId, userName, date, slot) {
   // 予約できるのは今日から RESERVE_DAYS 日先まで。今日の午前は12時を過ぎたら予約できない
   if (date < ymdJst_(0) || date > ymdJst_(RESERVE_DAYS)) return { ok: false, error: 'out_of_range', state: state };
   if (date === ymdJst_(0) && nowSlot_() === 'pm' && slot !== 'pm') return { ok: false, error: 'out_of_range', state: state };
+  // 納車前の日付は予約できない
+  if (car.from && date < car.from) return { ok: false, error: 'not_delivered', carName: car.name, from: car.from, state: state };
   const same = state.reserves.filter(v => v.date === date && slotsOverlap_(v.slot, slot));
   // 同じ車・同じ時間に先約がある
   const taken = same.find(v => v.carId === carId);
@@ -362,6 +367,8 @@ function start_(carId, userName) {
   const car = state.cars.find(c => c.id === carId);
   if (!car) return { ok: false, error: 'unknown_car' };
   if (!state.people.some(p => p.name === userName)) return { ok: false, error: 'unknown_user' };
+  // 納車前の車は使用開始できない
+  if (car.from && car.from > ymdJst_(0)) return { ok: false, error: 'not_delivered', carName: car.name, from: car.from, state: state };
   const cur = state.status[carId];
   if (cur && cur.inUse) return { ok: false, error: 'in_use', userName: cur.userName, state: state };
   // 1人が同時に使えるのは1台まで
