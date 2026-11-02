@@ -136,7 +136,9 @@ main.no-action{padding-bottom:calc(90px + env(safe-area-inset-bottom,0px))}
 /* 納車前の車：点線の枠で「まだ来ていない」ことを表し、選べないようにする */
 .car.pending{background:transparent;border-style:dashed;box-shadow:none;cursor:default}
 .car.pending .car-name{color:var(--muted)}
-.pill.wait{background:transparent;border:1.5px dashed var(--muted);color:var(--muted)}
+/* 納車待ちは紫（緑=空き・グレー=使用中・青=自分・オレンジ/赤=お知らせ と重ならない色） */
+.pill.wait{background:#efe7fb;border:1.5px dashed #6b3fb0;color:#5a2f9c}
+.car.pending .due{color:#5a2f9c}
 .due{font-size:15px;font-weight:700;color:var(--ink)}
 /* 車両カードの予定・お知らせ（点検・車検・お知らせ）。近い予定はオレンジ、期限切れは赤 */
 .car-notes{grid-column:1/-1;display:flex;flex-direction:column;gap:6px}
@@ -388,11 +390,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.11.02-1"></script>
+<script src="config.js?v=2026.11.02-2"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.11.02-1';
+  const APP_VERSION = '2026.11.02-2';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
