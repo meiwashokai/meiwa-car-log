@@ -186,7 +186,7 @@ function readCars_() {
   return sh.getRange(2, 1, sh.getLastRow() - 1, CAR_HEADERS.length).getValues()
     .map(r => ({
       id: String(r[0]).trim(), name: String(r[0]).trim(), plate: String(r[1]).trim(),
-      inspect: toYMD_(r[2]), shaken: toYM_(r[3]), note: String(r[4] || '').trim(),
+      inspect: toYMD_(r[2]), shaken: toShaken_(r[3]), note: String(r[4] || '').trim(),
       fuel: String(r[CAR_FUEL_COL - 1] || '').trim(),
       oil: String(r[CAR_OIL_COL - 1] || '').trim(),
       from: toYMD_(r[CAR_FROM_COL - 1])
@@ -210,6 +210,14 @@ function toYM_(v) {
   if (v instanceof Date && !isNaN(v)) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM');
   const m = String(v || '').match(/(\d{4})\D+(\d{1,2})/);
   return m ? m[1] + '-' + pad2_(m[2]) : '';
+}
+
+// 車検予定：日付まであれば "2028-11-13"、年月だけなら "2028-11"
+// 日付セルは日まで入っているものとして扱う（月だけのつもりでも1日になるので、早めに気づける）
+function toShaken_(v) {
+  if (v instanceof Date && !isNaN(v)) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
+  const m = String(v || '').match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  return m ? m[1] + '-' + pad2_(m[2]) + '-' + pad2_(m[3]) : toYM_(v);
 }
 
 function pad2_(n) { return ('0' + Number(n)).slice(-2); }
