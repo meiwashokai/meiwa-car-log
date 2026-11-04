@@ -390,11 +390,11 @@ tr:last-child td{border-bottom:0}
   </div>
 </div>
 
-<script src="config.js?v=2026.11.02-2"></script>
+<script src="config.js?v=2026.11.04-1"></script>
 <script>
 (() => {
   // 画面を更新したら APP_VERSION と version.json の両方を書き換える（スマホが自動で新しい版に切り替わる）
-  const APP_VERSION = '2026.11.02-2';
+  const APP_VERSION = '2026.11.04-1';
   const CFG = window.CAR_LOG_CONFIG || {};
   const POLL_MS = 20000;
 
@@ -623,7 +623,17 @@ tr:last-child td{border-bottom:0}
         items.push({ cls: left <= 7 ? 'warn' : '', label: '点検', text: `${when} 点検予定` });
       }
     }
-    if (c.shaken) {
+    if (c.shaken && c.shaken.length === 10) {
+      // 満了日まで分かるとき：2か月前からオレンジ、満了日の翌日から赤
+      // （2025年4月から、満了日の2か月前から受けても次の期限は短くならない）
+      const [y, m, d] = c.shaken.split('-').map(Number);
+      const left = dayNo(y, m, d) - dayNo(today[0], today[1], today[2]);
+      const warnFrom = dayNo(y, m - 2, d) - dayNo(y, m, d);
+      const lab = `${y}年${m}月${d}日`;
+      if (left < 0) items.push({ cls: 'danger', label: '車検', text: `車検の満了日（${lab}）を過ぎています` });
+      else items.push({ cls: left <= -warnFrom ? 'warn' : '', label: '車検', text: `${lab} 車検満了` });
+    } else if (c.shaken) {
+      // 年月だけのとき（以前の入れ方）：車検月の前の月からオレンジ、車検月を過ぎたら赤
       const [y, m] = c.shaken.split('-').map(Number);
       const left = (y * 12 + m) - (today[0] * 12 + today[1]);
       // 車検月を過ぎたら赤で知らせる（車検切れの車は運転できない）
